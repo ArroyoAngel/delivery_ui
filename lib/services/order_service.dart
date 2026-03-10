@@ -1,0 +1,104 @@
+import 'api_client.dart';
+
+class OrderItem {
+  final String menuItemId;
+  final String name;
+  final double price;
+  int quantity;
+
+  OrderItem({
+    required this.menuItemId,
+    required this.name,
+    required this.price,
+    this.quantity = 1,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'menuItemId': menuItemId,
+        'quantity': quantity,
+      };
+}
+
+class DeliveryOrder {
+  final String id;
+  final String restaurantId;
+  final String? restaurantName;
+  final String status;
+  final String deliveryType;
+  final String? deliveryAddress;
+  final double total;
+  final double deliveryFee;
+  final String? notes;
+  final DateTime createdAt;
+
+  DeliveryOrder({
+    required this.id,
+    required this.restaurantId,
+    this.restaurantName,
+    required this.status,
+    required this.deliveryType,
+    this.deliveryAddress,
+    required this.total,
+    required this.deliveryFee,
+    this.notes,
+    required this.createdAt,
+  });
+
+  factory DeliveryOrder.fromJson(Map<String, dynamic> j) => DeliveryOrder(
+        id: j['id'] as String,
+        restaurantId: j['restaurantId'] as String? ?? j['restaurant_id'] as String? ?? '',
+        restaurantName: j['restaurantName'] as String? ?? j['restaurant_name'] as String?,
+        status: j['status'] as String? ?? 'pendiente',
+        deliveryType: j['deliveryType'] as String? ?? j['delivery_type'] as String? ?? 'delivery',
+        deliveryAddress: j['deliveryAddress'] as String? ?? j['delivery_address'] as String?,
+        total: double.tryParse((j['total'] ?? '0').toString()) ?? 0.0,
+        deliveryFee: double.tryParse((j['deliveryFee'] ?? j['delivery_fee'] ?? '0').toString()) ?? 0.0,
+        notes: j['notes'] as String?,
+        createdAt: DateTime.tryParse(j['createdAt'] as String? ?? j['created_at'] as String? ?? '') ?? DateTime.now(),
+      );
+}
+
+class OrderService {
+  static final OrderService _instance = OrderService._internal();
+  factory OrderService() => _instance;
+  OrderService._internal();
+
+  final _api = ApiClient();
+
+  Future<List<DeliveryOrder>> getOrders() async {
+    final data = await _api.get('/orders') as List;
+    return data.map((e) => DeliveryOrder.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<DeliveryOrder> getOrder(String id) async {
+    final data = await _api.get('/orders/$id') as Map<String, dynamic>;
+    return DeliveryOrder.fromJson(data);
+  }
+
+  Future<DeliveryOrder> createOrder({
+    required String restaurantId,
+    required List<OrderItem> items,
+    String deliveryType = 'delivery',
+    String? deliveryAddress,
+    String? notes,
+  }) async {
+    final body = <String, dynamic>{
+      'restaurantId': restaurantId,
+      'items': items.map((e) => e.toJson()).toList(),
+      'deliveryType': deliveryType,
+    };
+    if (deliveryAddress != null) body['deliveryAddress'] = deliveryAddress;
+    if (notes != null) body['notes'] = notes;
+    final data = await _api.post('/orders', body) as Map<String, dynamic>;
+    return DeliveryOrder.fromJson(data);
+  }
+
+  Future<void> cancelOrder(String id) async {
+    await _api.post('/orders/$id/cancel', {});
+  }
+
+  Future<String> checkPaymentStatus(String id) async {
+    final data = await _api.get('/orders/$id') as Map<String, dynamic>;
+    return data['status'] as String? ?? 'pendiente';
+  }
+}
