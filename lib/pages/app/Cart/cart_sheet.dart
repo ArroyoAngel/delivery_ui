@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../../../services/cart_service.dart';
 import '../../../services/order_service.dart';
 import '../../../services/restaurant_service.dart';
+import '../../../services/address_service.dart';
 import '../Orders/payment_page.dart';
+import '../settings/addresses_page.dart';
 
 class CartSheet extends StatefulWidget {
   const CartSheet({super.key});
@@ -15,10 +17,15 @@ class _CartSheetState extends State<CartSheet> {
   final _cart = CartService();
   final _orderService = OrderService();
   final _restaurantService = RestaurantService();
+  final _addressService = AddressService();
 
   bool _isOrdering = false;
   String _deliveryType = 'delivery';
   double? _restaurantDeliveryFee;
+
+  List<UserAddress> _addresses = [];
+  UserAddress? _selectedAddress;
+  bool _loadingAddresses = false;
 
   @override
   void initState() {
@@ -27,7 +34,33 @@ class _CartSheetState extends State<CartSheet> {
     if (!_cart.isMultiRestaurant && _cart.restaurantIds.isNotEmpty) {
       _loadDeliveryFee();
     }
+    _loadAddresses();
   }
+
+  Future<void> _loadAddresses() async {
+    setState(() => _loadingAddresses = true);
+    try {
+      final list = await _addressService.getAddresses();
+      if (mounted) {
+        setState(() {
+          _addresses = list;
+          if (list.isNotEmpty) {
+            // Pre-seleccionar la dirección por defecto, o la primera
+            _selectedAddress = list.firstWhere(
+              (a) => a.isDefault,
+              orElse: () => list.first,
+            );
+          }
+        });
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loadingAddresses = false);
+    }
+  }
+
+  bool get _needsAddress =>
+      _deliveryType == 'delivery' || _deliveryType == 'express' || _cart.isMultiRestaurant;
 
   @override
   void dispose() {
@@ -58,6 +91,27 @@ class _CartSheetState extends State<CartSheet> {
   double get _total => _subtotal + _deliveryFee;
 
   Future<void> _checkout() async {
+    // Validar dirección de entrega cuando se requiere
+    if (_needsAddress && _selectedAddress == null) {
+      if (_addresses.isEmpty) {
+        // No tiene ninguna dirección guardada — ir a agregar una
+        final added = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(builder: (_) => const AddressesPage()),
+        );
+        if (added == true) await _loadAddresses();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Selecciona una dirección de entrega'),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() => _isOrdering = true);
     try {
       if (_cart.isMultiRestaurant) {
@@ -77,43 +131,35 @@ class _CartSheetState extends State<CartSheet> {
   }
 
   Future<void> _checkoutMultiRestaurant() async {
-    // Create one express order per restaurant
     final byRestaurant = _cart.byRestaurant;
-    double totalAmount = 0;
-    String firstOrderId = '';
     final restaurantNames = <String>[];
+    final expressOrders = <ExpressRestaurantOrder>[];
 
     for (final restaurantId in byRestaurant.keys) {
       final entries = byRestaurant[restaurantId]!;
-      final items = entries.map((e) => e.item).toList();
       restaurantNames.add(entries.first.restaurantName);
-
-      Restaurant? r;
-      try {
-        r = await _restaurantService.getRestaurant(restaurantId);
-      } catch (_) {}
-
-      final subtotal = items.fold(0.0, (s, i) => s + i.price * i.quantity);
-      final fee = (r?.deliveryFee ?? 0) * 2; // express = ×2
-      totalAmount += subtotal + fee;
-
-      final order = await _orderService.createOrder(
+      expressOrders.add(ExpressRestaurantOrder(
         restaurantId: restaurantId,
-        items: items,
-        deliveryType: 'express',
-      );
-      if (firstOrderId.isEmpty) firstOrderId = order.id;
+        items: entries.map((e) => e.item).toList(),
+      ));
     }
 
+    final result = await _orderService.expressCheckout(
+      restaurants: expressOrders,
+      deliveryAddress: _selectedAddress?.fullAddress,
+      deliveryLat: _selectedAddress?.latitude,
+      deliveryLng: _selectedAddress?.longitude,
+    );
+
     if (!mounted) return;
-    _cart.clear(); // Limpiar carrito al confirmar
+    _cart.clear();
     Navigator.pop(context);
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => PaymentPage(
-          orderId: firstOrderId,
-          amount: totalAmount,
+          groupId: result.groupId,
+          amount: result.total,
           restaurantName: restaurantNames.join(' + '),
         ),
       ),
@@ -129,6 +175,9 @@ class _CartSheetState extends State<CartSheet> {
       restaurantId: restaurantId,
       items: items,
       deliveryType: _deliveryType,
+      deliveryAddress: _needsAddress ? _selectedAddress?.fullAddress : null,
+      deliveryLat: _needsAddress ? _selectedAddress?.latitude : null,
+      deliveryLng: _needsAddress ? _selectedAddress?.longitude : null,
     );
 
     if (!mounted) return;
@@ -334,6 +383,116 @@ class _CartSheetState extends State<CartSheet> {
               ],
             ),
           ),
+
+          // Selector de dirección (solo cuando se requiere entrega)
+          if (_needsAddress)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: _loadingAddresses
+                  ? const Center(
+                      child: SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : _addresses.isEmpty
+                      ? GestureDetector(
+                          onTap: () async {
+                            final added = await Navigator.push<bool>(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const AddressesPage()),
+                            );
+                            if (added == true) _loadAddresses();
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.red.shade300),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.location_off_outlined,
+                                    size: 16, color: Colors.red.shade700),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Necesitas agregar una dirección de entrega',
+                                    style: TextStyle(
+                                        color: Colors.red.shade700,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500),
+                                  ),
+                                ),
+                                Icon(Icons.add,
+                                    size: 16, color: Colors.red.shade700),
+                              ],
+                            ),
+                          ),
+                        )
+                      : GestureDetector(
+                          onTap: () async {
+                            final picked = await showModalBottomSheet<UserAddress>(
+                              context: context,
+                              builder: (_) => _AddressPicker(
+                                addresses: _addresses,
+                                selected: _selectedAddress,
+                              ),
+                            );
+                            if (picked != null) {
+                              setState(() => _selectedAddress = picked);
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                  color: _selectedAddress != null
+                                      ? Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withValues(alpha: 0.5)
+                                      : Colors.orange.shade300),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.location_on_outlined,
+                                    size: 16,
+                                    color: _selectedAddress != null
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Colors.orange.shade700),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _selectedAddress != null
+                                        ? _selectedAddress!.fullAddress
+                                        : 'Selecciona dirección de entrega',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                      color: _selectedAddress != null
+                                          ? Colors.black87
+                                          : Colors.orange.shade700,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Icon(Icons.expand_more,
+                                    size: 18,
+                                    color: Colors.grey.shade500),
+                              ],
+                            ),
+                          ),
+                        ),
+            ),
 
           // Totals
           Padding(
@@ -624,6 +783,78 @@ class _Btn extends StatelessWidget {
         child: Icon(icon,
             size: 13,
             color: filled ? Colors.white : Colors.grey.shade600),
+      ),
+    );
+  }
+}
+
+class _AddressPicker extends StatelessWidget {
+  final List<UserAddress> addresses;
+  final UserAddress? selected;
+
+  const _AddressPicker({required this.addresses, this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Dirección de entrega',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700)),
+                TextButton(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const AddressesPage()));
+                  },
+                  child: const Text('Administrar'),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          ...addresses.map((addr) {
+            final isSelected = addr.id == selected?.id;
+            return ListTile(
+              leading: Icon(
+                Icons.location_on_outlined,
+                color: isSelected ? theme.colorScheme.primary : Colors.grey,
+              ),
+              title: Text(addr.fullAddress,
+                  style: TextStyle(
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                  )),
+              subtitle: addr.reference != null && addr.reference!.isNotEmpty
+                  ? Text(addr.reference!, style: const TextStyle(fontSize: 12))
+                  : null,
+              trailing: isSelected
+                  ? Icon(Icons.check_circle,
+                      color: theme.colorScheme.primary, size: 20)
+                  : null,
+              onTap: () => Navigator.pop(context, addr),
+            );
+          }),
+          const SizedBox(height: 8),
+        ],
       ),
     );
   }

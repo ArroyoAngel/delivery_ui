@@ -15,6 +15,7 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
   bool _loading = true;
   String? _error;
   final Set<String> _delivering = {};
+  final Set<String> _pickingUp = {};
 
   @override
   void initState() {
@@ -29,6 +30,31 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
       setState(() { _group = group; _loading = false; });
     } catch (e) {
       setState(() { _error = e.toString(); _loading = false; });
+    }
+  }
+
+  Future<void> _markPickedUp(String orderId) async {
+    setState(() => _pickingUp.add(orderId));
+    try {
+      await _service.markOrderPickedUp(orderId);
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('¡Pedido recogido! Ahora podés entregarlo.'),
+            backgroundColor: Colors.blue,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _pickingUp.remove(orderId));
     }
   }
 
@@ -121,8 +147,10 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
     }
 
     final orders = _group!.orders;
-    final pending = orders.where((o) => o.status != 'entregado').toList();
-    final done = orders.where((o) => o.status == 'entregado').toList();
+    final toPickup  = orders.where((o) => o.status == 'listo').toList();
+    final waiting   = orders.where((o) => ['confirmado', 'preparando'].contains(o.status)).toList();
+    final toDeliver = orders.where((o) => o.status == 'en_camino').toList();
+    final done      = orders.where((o) => o.status == 'entregado').toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
@@ -183,11 +211,65 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
                 child: ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    // Pendientes
-                    if (pending.isNotEmpty) ...[
+                    // Esperando que el restaurante termine (preparando/confirmado)
+                    if (waiting.isNotEmpty) ...[
+                      Text('Esperando restaurante', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+                      const SizedBox(height: 8),
+                      ...waiting.map((o) => Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          side: BorderSide(color: Colors.orange.shade200),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
+                            children: [
+                              const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange)),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(o.restaurantName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                                    Text(
+                                      o.status == 'preparando' ? 'Preparando tu pedido...' : 'Confirmado, esperando inicio',
+                                      style: TextStyle(fontSize: 12, color: Colors.orange[700]),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Por recoger (listo) — deslizá para confirmar recogida
+                    if (toPickup.isNotEmpty) ...[
+                      Text('Por recoger', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Deslizá la tarjeta  →  para confirmar que recogiste el pedido',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                      ),
+                      const SizedBox(height: 8),
+                      ...toPickup.map((o) => _PickupCard(
+                        key: ValueKey(o.orderId),
+                        stop: o,
+                        pickingUp: _pickingUp.contains(o.orderId),
+                        onPickedUp: () => _markPickedUp(o.orderId),
+                      )),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Por entregar (en_camino)
+                    if (toDeliver.isNotEmpty) ...[
                       Text('Por entregar', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[700])),
                       const SizedBox(height: 8),
-                      ...pending.map((o) => _StopCard(
+                      ...toDeliver.map((o) => _StopCard(
                         stop: o,
                         delivering: _delivering.contains(o.orderId),
                         onMarkDelivered: () => _markDelivered(o.orderId),
@@ -206,6 +288,108 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// Tarjeta de recogida — deslizá a la derecha para confirmar
+class _PickupCard extends StatelessWidget {
+  final RiderOrderStop stop;
+  final bool pickingUp;
+  final VoidCallback onPickedUp;
+
+  const _PickupCard({
+    super.key,
+    required this.stop,
+    required this.pickingUp,
+    required this.onPickedUp,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Dismissible(
+      key: ValueKey('pickup_${stop.orderId}'),
+      direction: pickingUp ? DismissDirection.none : DismissDirection.startToEnd,
+      confirmDismiss: (_) async {
+        onPickedUp();
+        return false;
+      },
+      background: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.blue.shade600,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: const Row(
+          children: [
+            Icon(Icons.shopping_bag_outlined, color: Colors.white, size: 22),
+            SizedBox(width: 8),
+            Text('Recogido', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
+          ],
+        ),
+      ),
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: theme.colorScheme.primary.withValues(alpha: 0.4)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.store, color: theme.colorScheme.primary, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(stop.restaurantName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                        Text(stop.restaurantAddress, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (stop.items.isNotEmpty) ...[
+                const Divider(height: 14),
+                ...stop.items.map((item) => Text(
+                  '${item['quantity']}x ${item['item_name']}',
+                  style: const TextStyle(fontSize: 13),
+                )),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Text('Total: Bs ${stop.total.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                  const Spacer(),
+                  ElevatedButton.icon(
+                    onPressed: pickingUp ? null : onPickedUp,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue.shade600,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: pickingUp
+                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.shopping_bag_outlined, size: 16),
+                    label: Text(pickingUp ? 'Recogiendo...' : 'Recoger', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -247,7 +431,7 @@ class _StopCard extends StatelessWidget {
             _StepRow(
               icon: Icons.store_outlined,
               iconColor: theme.colorScheme.primary,
-              label: 'Recoger en',
+              label: 'Recogido en',
               title: stop.restaurantName,
               subtitle: stop.restaurantAddress,
             ),

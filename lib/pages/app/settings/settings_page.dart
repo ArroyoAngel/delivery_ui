@@ -5,6 +5,7 @@ import '../app_root.dart';
 import '../orders/orders_page.dart';
 import 'addresses_page.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/location_tracking_service.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -29,6 +30,15 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _setMode(String mode) async {
+    if (mode == 'rider' && !(_authService.currentUser?.roles.contains('rider') ?? false)) {
+      return;
+    }
+    final tracking = LocationTrackingService();
+    if (mode == 'rider') {
+      await tracking.start();
+    } else {
+      await tracking.stop(); // flush remaining points before switching
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('active_mode', mode);
     setState(() => _activeMode = mode);
@@ -90,7 +100,10 @@ class _SettingsPageState extends State<SettingsPage> {
     final fullName = user?.fullName ?? 'Usuario';
     final email = user?.email ?? '';
     final initials = user?.initials ?? 'U';
-    final isRider = user?.roles.contains('rider') ?? false;
+    final roles = user?.roles ?? [];
+    final isRider = roles.contains('rider');
+    // El switcher solo aparece si el superadmin le dio ambos roles
+    final hasBothRoles = isRider && roles.contains('client');
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -139,8 +152,8 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 12),
 
-            // Selector de modo (solo visible si el usuario tiene rol rider)
-            if (isRider)
+            // Selector de modo (solo visible si el superadmin otorgó ambos roles)
+            if (hasBothRoles)
               Container(
                 color: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -174,7 +187,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
 
-            if (isRider) const SizedBox(height: 12),
+            if (hasBothRoles) const SizedBox(height: 12),
 
             // Options
             Container(

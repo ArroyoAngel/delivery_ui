@@ -1,5 +1,31 @@
 import 'api_client.dart';
 
+class ExpressRestaurantOrder {
+  final String restaurantId;
+  final List<OrderItem> items;
+  final String? notes;
+
+  ExpressRestaurantOrder({required this.restaurantId, required this.items, this.notes});
+
+  Map<String, dynamic> toJson() => {
+        'restaurantId': restaurantId,
+        'items': items.map((e) => e.toJson()).toList(),
+        if (notes != null) 'notes': notes,
+      };
+}
+
+class ExpressCheckoutResult {
+  final String groupId;
+  final double total;
+
+  ExpressCheckoutResult({required this.groupId, required this.total});
+
+  factory ExpressCheckoutResult.fromJson(Map<String, dynamic> j) => ExpressCheckoutResult(
+        groupId: j['groupId'] as String,
+        total: double.tryParse((j['total'] ?? '0').toString()) ?? 0.0,
+      );
+}
+
 class OrderItem {
   final String menuItemId;
   final String name;
@@ -80,6 +106,8 @@ class OrderService {
     required List<OrderItem> items,
     String deliveryType = 'delivery',
     String? deliveryAddress,
+    double? deliveryLat,
+    double? deliveryLng,
     String? notes,
   }) async {
     final body = <String, dynamic>{
@@ -88,9 +116,27 @@ class OrderService {
       'deliveryType': deliveryType,
     };
     if (deliveryAddress != null) body['deliveryAddress'] = deliveryAddress;
+    if (deliveryLat != null) body['deliveryLat'] = deliveryLat;
+    if (deliveryLng != null) body['deliveryLng'] = deliveryLng;
     if (notes != null) body['notes'] = notes;
     final data = await _api.post('/orders', body) as Map<String, dynamic>;
     return DeliveryOrder.fromJson(data);
+  }
+
+  Future<ExpressCheckoutResult> expressCheckout({
+    required List<ExpressRestaurantOrder> restaurants,
+    String? deliveryAddress,
+    double? deliveryLat,
+    double? deliveryLng,
+  }) async {
+    final body = <String, dynamic>{
+      'orders': restaurants.map((r) => r.toJson()).toList(),
+      if (deliveryAddress != null) 'deliveryAddress': deliveryAddress,
+      if (deliveryLat != null) 'deliveryLat': deliveryLat,
+      if (deliveryLng != null) 'deliveryLng': deliveryLng,
+    };
+    final data = await _api.post('/orders/express-checkout', body) as Map<String, dynamic>;
+    return ExpressCheckoutResult.fromJson(data);
   }
 
   Future<void> cancelOrder(String id) async {
@@ -100,5 +146,20 @@ class OrderService {
   Future<String> checkPaymentStatus(String id) async {
     final data = await _api.get('/orders/$id') as Map<String, dynamic>;
     return data['status'] as String? ?? 'pendiente';
+  }
+
+  Future<String> checkGroupPaymentStatus(String groupId) async {
+    // Considera el grupo "confirmado" si al menos una de sus órdenes está confirmada
+    final data = await _api.get('/orders') as List;
+    final groupOrders = data
+        .map((e) => e as Map<String, dynamic>)
+        .where((o) => o['groupId'] == groupId || o['group_id'] == groupId)
+        .toList();
+    if (groupOrders.isEmpty) return 'pendiente';
+    final allConfirmed = groupOrders.every((o) {
+      final s = o['status'] as String? ?? 'pendiente';
+      return ['confirmado', 'preparando', 'listo', 'en_camino', 'entregado'].contains(s);
+    });
+    return allConfirmed ? 'confirmado' : 'pendiente';
   }
 }

@@ -100,7 +100,11 @@ class RiderService {
     return RiderGroup.fromJson(data);
   }
 
+  Future<void> markOrderPickedUp(String orderId) async {
+    await _api.put('/orders/$orderId/on-the-way', {});
+  }
+
   Future<void> markOrderDelivered(String orderId) async {
-    await _api.put('/rider/orders/$orderId/delivered', {});
+    await _api.put('/orders/$orderId/done', {});
   }
 }

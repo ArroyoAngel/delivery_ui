@@ -208,7 +208,15 @@ class _GroupCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(o.restaurantName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(o.restaurantName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                            ),
+                            const SizedBox(width: 6),
+                            _PrepBadge(status: o.status),
+                          ],
+                        ),
                         Text(o.restaurantAddress, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
                       ],
                     ),
@@ -289,5 +297,32 @@ class _GroupCard extends StatelessWidget {
     if (diff.inMinutes < 1) return 'Ahora';
     if (diff.inMinutes < 60) return 'Hace ${diff.inMinutes} min';
     return 'Hace ${diff.inHours}h';
+  }
+}
+
+class _PrepBadge extends StatelessWidget {
+  final String status;
+  const _PrepBadge({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, icon, bg, fg) = switch (status) {
+      'listo'      => ('Listo', Icons.check_circle_outline, Colors.green.shade50,  Colors.green.shade700),
+      'preparando' => ('Preparando', Icons.schedule, Colors.orange.shade50, Colors.orange.shade700),
+      'confirmado' => ('Confirmado', Icons.thumb_up_outlined, Colors.blue.shade50,  Colors.blue.shade700),
+      _            => ('Pendiente', Icons.hourglass_empty, Colors.grey.shade100, Colors.grey.shade600),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: fg),
+          const SizedBox(width: 3),
+          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
+        ],
+      ),
+    );
   }
 }

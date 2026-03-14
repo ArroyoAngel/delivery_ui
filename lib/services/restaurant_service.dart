@@ -81,8 +81,25 @@ class Restaurant {
             ? null
             : double.tryParse((j['deliveryFee'] ?? j['delivery_fee']).toString()),
         isOpen: j['is_open'] as bool? ?? j['isOpen'] as bool? ?? true,
-        menu: (j['menu'] as List?)?.map((e) => MenuItem.fromJson(e as Map<String, dynamic>)).toList() ?? [],
+        menu: _flattenMenu(j),
       );
+
+  // El backend retorna menuCategories:[{name, items:[...]}] — lo aplanamos.
+  static List<MenuItem> _flattenMenu(Map<String, dynamic> j) {
+    final categories =
+        j['menuCategories'] as List? ?? j['menu'] as List? ?? [];
+    final result = <MenuItem>[];
+    for (final cat in categories) {
+      final catMap = cat as Map<String, dynamic>;
+      final catName = catMap['name'] as String?;
+      for (final item in (catMap['items'] as List? ?? [])) {
+        final itemMap = Map<String, dynamic>.from(item as Map);
+        itemMap['category_name'] = catName;
+        result.add(MenuItem.fromJson(itemMap));
+      }
+    }
+    return result;
+  }
 }
 
 class RestaurantService {

@@ -23,14 +23,6 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
-    _checkSession();
-  }
-
-  Future<void> _checkSession() async {
-    final ok = await _authService.isSignedIn();
-    if (ok && mounted) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AppRoot()));
-    }
   }
 
   Future<void> _submit() async {
@@ -59,7 +51,10 @@ class _LoginPageState extends State<LoginPage> {
         await _authService.login(email, password);
       }
       if (mounted) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AppRoot()));
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AppRoot()),
+        );
       }
     } catch (e) {
       if (mounted) _showSnack('Error: $e', Colors.red);
@@ -73,7 +68,10 @@ class _LoginPageState extends State<LoginPage> {
     try {
       await _authService.googleSignIn();
       if (mounted) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AppRoot()));
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AppRoot()),
+        );
       }
     } catch (e) {
       if (mounted) _showSnack('Error: $e', Colors.red);
@@ -83,9 +81,9 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _showSnack(String msg, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: color),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: color));
   }
 
   @override
@@ -120,7 +118,11 @@ class _LoginPageState extends State<LoginPage> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Center(
-                      child: Icon(Icons.delivery_dining, color: Colors.white, size: 24),
+                      child: Icon(
+                        Icons.delivery_dining,
+                        color: Colors.white,
+                        size: 24,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -144,7 +146,9 @@ class _LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(height: 6),
               Text(
-                _isRegisterMode ? 'Ingresa tus datos para comenzar' : 'Bienvenido de vuelta',
+                _isRegisterMode
+                    ? 'Ingresa tus datos para comenzar'
+                    : 'Bienvenido de vuelta',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -180,10 +184,13 @@ class _LoginPageState extends State<LoginPage> {
                 obscureText: _obscurePassword,
                 suffixIcon: IconButton(
                   icon: Icon(
-                    _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                    _obscurePassword
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
                     color: Colors.grey,
                   ),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  onPressed: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
                 ),
               ),
               const SizedBox(height: 28),
@@ -195,18 +202,26 @@ class _LoginPageState extends State<LoginPage> {
                     backgroundColor: primary,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     elevation: 0,
                   ),
                   child: _isLoading
                       ? const SizedBox(
                           width: 22,
                           height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
                         )
                       : Text(
                           _isRegisterMode ? 'Registrarse' : 'Ingresar',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                 ),
               ),
@@ -216,7 +231,10 @@ class _LoginPageState extends State<LoginPage> {
                   Expanded(child: Divider(color: Colors.grey.shade300)),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text('o', style: TextStyle(color: Colors.grey.shade500)),
+                    child: Text(
+                      'o',
+                      style: TextStyle(color: Colors.grey.shade500),
+                    ),
                   ),
                   Expanded(child: Divider(color: Colors.grey.shade300)),
                 ],
@@ -225,11 +243,15 @@ class _LoginPageState extends State<LoginPage> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: (_isLoading || _isGoogleLoading) ? null : _googleSignIn,
+                  onPressed: (_isLoading || _isGoogleLoading)
+                      ? null
+                      : _googleSignIn,
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     side: BorderSide(color: Colors.grey.shade300),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   icon: _isGoogleLoading
                       ? const SizedBox(
@@ -239,7 +261,9 @@ class _LoginPageState extends State<LoginPage> {
                         )
                       : const Icon(Icons.g_mobiledata, size: 26),
                   label: Text(
-                    _isRegisterMode ? 'Registrarse con Google' : 'Ingresar con Google',
+                    _isRegisterMode
+                        ? 'Registrarse con Google'
+                        : 'Ingresar con Google',
                     style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
                 ),
@@ -247,17 +271,25 @@ class _LoginPageState extends State<LoginPage> {
               const SizedBox(height: 24),
               Center(
                 child: GestureDetector(
-                  onTap: () => setState(() => _isRegisterMode = !_isRegisterMode),
+                  onTap: () =>
+                      setState(() => _isRegisterMode = !_isRegisterMode),
                   child: RichText(
                     text: TextSpan(
                       style: TextStyle(color: Colors.grey.shade600),
                       children: [
                         TextSpan(
-                          text: _isRegisterMode ? '¿Ya tienes cuenta? ' : '¿No tienes cuenta? ',
+                          text: _isRegisterMode
+                              ? '¿Ya tienes cuenta? '
+                              : '¿No tienes cuenta? ',
                         ),
                         TextSpan(
-                          text: _isRegisterMode ? 'Iniciar sesión' : 'Regístrate',
-                          style: TextStyle(color: primary, fontWeight: FontWeight.w700),
+                          text: _isRegisterMode
+                              ? 'Iniciar sesión'
+                              : 'Regístrate',
+                          style: TextStyle(
+                            color: primary,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ],
                     ),
@@ -297,7 +329,11 @@ class _InputField extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF444444)),
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF444444),
+          ),
         ),
         const SizedBox(height: 6),
         TextField(
@@ -310,7 +346,10 @@ class _InputField extends StatelessWidget {
             suffixIcon: suffixIcon,
             filled: true,
             fillColor: Colors.grey.shade50,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(color: Colors.grey.shade300),

@@ -5,16 +5,20 @@ import '../../../services/order_service.dart';
 import '../../../services/cart_service.dart';
 
 class PaymentPage extends StatefulWidget {
-  final String orderId;
+  /// Para órdenes simples. Mutuamente excluyente con [groupId].
+  final String? orderId;
+  /// Para checkout express multi-restaurante.
+  final String? groupId;
   final double amount;
   final String restaurantName;
 
   const PaymentPage({
     super.key,
-    required this.orderId,
+    this.orderId,
+    this.groupId,
     required this.amount,
     required this.restaurantName,
-  });
+  }) : assert(orderId != null || groupId != null);
 
   @override
   State<PaymentPage> createState() => _PaymentPageState();
@@ -31,7 +35,7 @@ class _PaymentPageState extends State<PaymentPage> {
       final bytes = await rootBundle.load('assets/qr_bnb.jpg');
       await Gal.putImageBytes(
         bytes.buffer.asUint8List(),
-        name: 'pago_bnb_${widget.orderId.substring(0, 8)}',
+        name: 'pago_bnb_${(widget.groupId ?? widget.orderId!).substring(0, 8)}',
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -50,7 +54,9 @@ class _PaymentPageState extends State<PaymentPage> {
   Future<void> _verifyPayment() async {
     setState(() => _verifying = true);
     try {
-      final status = await _orderService.checkPaymentStatus(widget.orderId);
+      final status = widget.groupId != null
+          ? await _orderService.checkGroupPaymentStatus(widget.groupId!)
+          : await _orderService.checkPaymentStatus(widget.orderId!);
       if (!mounted) return;
       if (status == 'pagado' ||
           status == 'confirmado' ||
@@ -146,7 +152,7 @@ class _PaymentPageState extends State<PaymentPage> {
                 const Divider(height: 16),
                 _BankRow(
                   label: 'Referencia',
-                  value: widget.orderId.substring(0, 8).toUpperCase(),
+                  value: (widget.groupId ?? widget.orderId!).substring(0, 8).toUpperCase(),
                   copyable: true,
                 ),
               ]),

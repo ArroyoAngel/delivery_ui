@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'mapbox_config.dart';
+import 'services/auth_service.dart';
+import 'pages/app/app_root.dart';
 import 'pages/core/onboarding_page.dart';
 
 Future<void> main() async {
@@ -26,7 +28,45 @@ class DeliveryApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const OnboardingPage(),
+      home: const SessionGatePage(),
+    );
+  }
+}
+
+class SessionGatePage extends StatefulWidget {
+  const SessionGatePage({super.key});
+
+  @override
+  State<SessionGatePage> createState() => _SessionGatePageState();
+}
+
+class _SessionGatePageState extends State<SessionGatePage> {
+  final _authService = AuthService();
+  late final Future<bool> _isSignedInFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _isSignedInFuture = _authService.isSignedIn();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: _isSignedInFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snapshot.data == true) {
+          return const AppRoot();
+        }
+
+        return const OnboardingPage();
+      },
     );
   }
 }

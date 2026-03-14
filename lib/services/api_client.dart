@@ -85,7 +85,13 @@ class ApiClient {
   }
 
   dynamic _handle(http.Response res) {
-    final body = jsonDecode(res.body);
+    final raw = res.body.trim();
+    // 204 No Content u otras respuestas sin cuerpo
+    if (raw.isEmpty) {
+      if (res.statusCode >= 200 && res.statusCode < 300) return null;
+      throw ApiException('Error ${res.statusCode}', res.statusCode);
+    }
+    final body = jsonDecode(raw);
     if (res.statusCode >= 200 && res.statusCode < 300) return body;
     final message = body['message'] ?? 'Error desconocido';
     throw ApiException(

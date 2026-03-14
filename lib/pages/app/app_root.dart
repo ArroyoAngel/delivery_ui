@@ -8,6 +8,7 @@ import 'settings/settings_page.dart';
 import 'Rider/available_groups_page.dart';
 import 'Rider/active_delivery_page.dart';
 import '../../services/cart_service.dart';
+import '../../services/auth_service.dart';
 import 'Cart/cart_sheet.dart';
 
 class AppRoot extends StatefulWidget {
@@ -45,7 +46,24 @@ class _AppRootState extends State<AppRoot> {
 
   Future<void> _loadMode() async {
     final prefs = await SharedPreferences.getInstance();
-    final mode = prefs.getString('active_mode') ?? 'client';
+    final stored = prefs.getString('active_mode') ?? 'client';
+    final roles = AuthService().currentUser?.roles ?? [];
+    final hasRider  = roles.contains('rider');
+    final hasClient = roles.contains('client');
+
+    String mode;
+    if (hasRider && hasClient) {
+      // Usuario con ambos roles: respetar la preferencia guardada
+      mode = stored;
+    } else if (hasRider) {
+      // Solo rider: forzar modo delivery
+      mode = 'rider';
+    } else {
+      // Solo client (o sin roles): forzar modo cliente
+      mode = 'client';
+    }
+
+    if (mode != stored) await prefs.setString('active_mode', mode);
     if (mounted) setState(() { _activeMode = mode; _selectedIndex = 0; });
   }
 
