@@ -12,13 +12,13 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
   MapboxOptions.setAccessToken(mapboxAccessToken);
-  try {
-    await Firebase.initializeApp();
-    await NotificationService().init();
-  } catch (e) {
-    // Firebase no configurado o error de red — la app sigue funcionando sin push notifications
+  // Firebase se inicializa en background — nunca bloquea el arranque
+  Firebase.initializeApp().then((_) {
+    NotificationService().init().catchError((_) {});
+  }).catchError((e) {
     debugPrint('Firebase init error: $e');
-  }
+  });
+
   runApp(const DeliveryApp());
 }
 

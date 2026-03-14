@@ -2,6 +2,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/restaurant_service.dart';
+import '../../../services/notification_api_service.dart';
+import '../notifications_sheet.dart';
 import 'restaurant_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -13,17 +15,39 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final _restaurantService = RestaurantService();
+  final _notifService = NotificationApiService();
   final _searchController = TextEditingController();
 
   late Future<List<Restaurant>> _restaurantsFuture;
   late Future<List<RestaurantCategory>> _categoriesFuture;
   String? _selectedCategory;
+  int _unreadCount = 0;
 
   @override
   void initState() {
     super.initState();
     _categoriesFuture = _restaurantService.getCategories();
     _load();
+    _loadUnreadCount();
+  }
+
+  Future<void> _loadUnreadCount() async {
+    try {
+      final count = await _notifService.getUnreadCount();
+      if (mounted) setState(() => _unreadCount = count);
+    } catch (_) {}
+  }
+
+  void _openNotifications() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => const NotificationsSheet(),
+    ).then((_) => _loadUnreadCount());
   }
 
   void _load() {
@@ -58,18 +82,55 @@ class _HomePageState extends State<HomePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Hola, ${user?.firstName ?? 'amigo'} 👋',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '¿Qué vas a pedir hoy?',
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Hola, ${user?.firstName ?? 'amigo'} 👋',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '¿Qué vas a pedir hoy?',
+                                style: theme.textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.notifications_outlined),
+                              onPressed: _openNotifications,
+                              tooltip: 'Notificaciones',
+                            ),
+                            if (_unreadCount > 0)
+                              Positioned(
+                                top: 6,
+                                right: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                                  child: Text(
+                                    _unreadCount > 99 ? '99+' : '$_unreadCount',
+                                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 16),
                     // Search bar

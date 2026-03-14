@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../services/rider_service.dart';
+import '../../../services/notification_api_service.dart';
+import '../notifications_sheet.dart';
 import 'rider_map_page.dart';
 
 class AvailableGroupsPage extends StatefulWidget {
@@ -11,15 +13,37 @@ class AvailableGroupsPage extends StatefulWidget {
 
 class _AvailableGroupsPageState extends State<AvailableGroupsPage> {
   final _service = RiderService();
+  final _notifService = NotificationApiService();
   List<RiderGroup> _groups = [];
   bool _loading = true;
   String? _error;
   String? _accepting;
+  int _unreadCount = 0;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _loadUnreadCount();
+  }
+
+  Future<void> _loadUnreadCount() async {
+    try {
+      final count = await _notifService.getUnreadCount();
+      if (mounted) setState(() => _unreadCount = count);
+    } catch (_) {}
+  }
+
+  void _openNotifications() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => const NotificationsSheet(),
+    ).then((_) => _loadUnreadCount());
   }
 
   Future<void> _load() async {
@@ -90,56 +114,92 @@ class _AvailableGroupsPageState extends State<AvailableGroupsPage> {
                     ],
                   ),
                   const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.refresh),
-                    onPressed: _load,
-                    tooltip: 'Actualizar',
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.notifications_outlined),
+                        onPressed: _openNotifications,
+                        tooltip: 'Notificaciones',
+                      ),
+                      if (_unreadCount > 0)
+                        Positioned(
+                          top: 6,
+                          right: 6,
+                          child: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                            child: Text(
+                              _unreadCount > 99 ? '99+' : '$_unreadCount',
+                              style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ],
               ),
             ),
 
             Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                      ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                              const SizedBox(height: 8),
-                              Text(_error!, textAlign: TextAlign.center),
-                              const SizedBox(height: 16),
-                              ElevatedButton(onPressed: _load, child: const Text('Reintentar')),
-                            ],
-                          ),
-                        )
-                      : _groups.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[300]),
-                                  const SizedBox(height: 12),
-                                  Text('No hay grupos disponibles', style: TextStyle(color: Colors.grey[500], fontSize: 16)),
-                                  const SizedBox(height: 8),
-                                  Text('Los pedidos se agrupan automáticamente', style: TextStyle(color: Colors.grey[400], fontSize: 13)),
-                                ],
+              child: RefreshIndicator(
+                onRefresh: _load,
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : CustomScrollView(
+                        slivers: [
+                          if (_error != null)
+                            SliverFillRemaining(
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                                    const SizedBox(height: 8),
+                                    Text(_error!, textAlign: TextAlign.center),
+                                    const SizedBox(height: 16),
+                                    ElevatedButton(onPressed: _load, child: const Text('Reintentar')),
+                                  ],
+                                ),
                               ),
                             )
-                          : RefreshIndicator(
-                              onRefresh: _load,
-                              child: ListView.builder(
-                                padding: const EdgeInsets.all(16),
-                                itemCount: _groups.length,
-                                itemBuilder: (_, i) => _GroupCard(
-                                  group: _groups[i],
-                                  accepting: _accepting == _groups[i].id,
-                                  onAccept: () => _accept(_groups[i].id),
+                          else if (_groups.isEmpty)
+                            SliverFillRemaining(
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[300]),
+                                    const SizedBox(height: 12),
+                                    Text('No hay grupos disponibles', style: TextStyle(color: Colors.grey[500], fontSize: 16)),
+                                    const SizedBox(height: 8),
+                                    Text('Los pedidos se agrupan automáticamente', style: TextStyle(color: Colors.grey[400], fontSize: 13)),
+                                  ],
+                                ),
+                              ),
+                            )
+                          else
+                            SliverPadding(
+                              padding: const EdgeInsets.all(16),
+                              sliver: SliverList(
+                                delegate: SliverChildBuilderDelegate(
+                                  (_, i) => _GroupCard(
+                                    group: _groups[i],
+                                    accepting: _accepting == _groups[i].id,
+                                    onAccept: () => _accept(_groups[i].id),
+                                  ),
+                                  childCount: _groups.length,
                                 ),
                               ),
                             ),
+                        ],
+                      ),
+              ),
             ),
           ],
         ),
