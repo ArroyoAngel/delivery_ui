@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'mapbox_config.dart';
 import 'services/auth_service.dart';
+import 'services/notification_service.dart';
 import 'pages/app/app_root.dart';
 import 'pages/core/onboarding_page.dart';
 
@@ -10,6 +12,13 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
   MapboxOptions.setAccessToken(mapboxAccessToken);
+  try {
+    await Firebase.initializeApp();
+    await NotificationService().init();
+  } catch (e) {
+    // Firebase no configurado o error de red — la app sigue funcionando sin push notifications
+    debugPrint('Firebase init error: $e');
+  }
   runApp(const DeliveryApp());
 }
 

@@ -1,1 +1,29 @@
-{"installed":{"client_id":"45660554877-1n412ls4245lhs9ggs9csp7kevcvbh6c.apps.googleusercontent.com","project_id":"delivery-489720","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs"}}
+{
+  "project_info": {
+    "project_number": "750882656445",
+    "project_id": "yaya-eats",
+    "storage_bucket": "yaya-eats.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:750882656445:android:068b42be7c6600a60467d4",
+        "android_client_info": {
+          "package_name": "com.arroyo.yayaeats"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCN700qcIKHX1NSd4_gTGtBSSUIVQi0n28"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

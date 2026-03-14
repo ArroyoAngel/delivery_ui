@@ -1,5 +1,6 @@
 import 'package:google_sign_in/google_sign_in.dart';
 import 'api_client.dart';
+import 'notification_service.dart';
 
 class AuthUser {
   final String id;
@@ -51,6 +52,7 @@ class AuthService {
     // delivery_api returns only accessToken — fetch user separately
     final me = await _api.get('/auth/me') as Map<String, dynamic>;
     _currentUser = AuthUser.fromJson(me);
+    NotificationService().registerAfterLogin().catchError((_) {});
     return _currentUser!;
   }
 
@@ -71,6 +73,7 @@ class AuthService {
     await _api.saveToken(data['accessToken'] as String);
     final me = await _api.get('/auth/me') as Map<String, dynamic>;
     _currentUser = AuthUser.fromJson(me);
+    NotificationService().registerAfterLogin().catchError((_) {});
     return _currentUser!;
   }
 
@@ -101,10 +104,12 @@ class AuthService {
     await _api.saveToken(data['accessToken'] as String);
     final me = await _api.get('/auth/me') as Map<String, dynamic>;
     _currentUser = AuthUser.fromJson(me);
+    NotificationService().registerAfterLogin().catchError((_) {});
     return _currentUser!;
   }
 
   Future<void> signOut() async {
+    await NotificationService().unregisterOnLogout().catchError((_) {});
     await _api.clearToken();
     _currentUser = null;
     try {
