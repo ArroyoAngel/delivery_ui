@@ -34,7 +34,10 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Sí, cancelar', style: TextStyle(color: Colors.red)),
+            child: const Text(
+              'Sí, cancelar',
+              style: TextStyle(color: Colors.red),
+            ),
           ),
         ],
       ),
@@ -45,7 +48,9 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     try {
       await _orderService.cancelOrder(widget.orderId);
       if (mounted) {
-        setState(() { _future = _orderService.getOrder(widget.orderId); });
+        setState(() {
+          _future = _orderService.getOrder(widget.orderId);
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -83,7 +88,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
   Widget _buildBody(DeliveryOrder order) {
     final theme = Theme.of(context);
     final (label, color) = _statusInfo(order.status);
-    final canCancel = order.status == 'pendiente' || order.status == 'confirmado';
+    final canCancel = order.status == 'pendiente';
 
     final steps = _buildSteps(order.status, order.deliveryType);
 
@@ -97,9 +102,9 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: color.withValues(alpha:0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: color.withValues(alpha:0.3)),
+              border: Border.all(color: color.withValues(alpha: 0.3)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -123,7 +128,12 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
           const SizedBox(height: 24),
 
           // Timeline
-          Text('Seguimiento', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            'Seguimiento',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 12),
           ...steps.asMap().entries.map((entry) {
             final i = entry.key;
@@ -132,11 +142,54 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             return _StepTile(step: step, isLast: isLast);
           }),
           const SizedBox(height: 24),
+          Text(
+            'Productos',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (order.items.isEmpty)
+            Text(
+              'No hay productos disponibles para esta orden',
+              style: TextStyle(color: Colors.grey.shade600),
+            )
+          else
+            ...order.items.map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${item.quantity}x ${item.name}',
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Bs ${item.subtotal.toStringAsFixed(2)}',
+                      style: TextStyle(color: Colors.grey.shade700),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 14),
 
           // Details
-          Text('Detalles', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            'Detalles',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 12),
-          _DetailRow(label: 'Tipo', value: order.deliveryType == 'delivery' ? 'Delivery' : 'Recojo'),
+          _DetailRow(
+            label: 'Tipo',
+            value: order.deliveryType == 'delivery' ? 'Delivery' : 'Recojo',
+          ),
           if (order.deliveryAddress != null)
             _DetailRow(label: 'Dirección', value: order.deliveryAddress!),
           const SizedBox(height: 8),
@@ -151,7 +204,10 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Total', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              const Text(
+                'Total',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              ),
               Text(
                 'Bs ${order.total.toStringAsFixed(2)}',
                 style: TextStyle(
@@ -173,16 +229,24 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                   foregroundColor: Colors.red,
                   side: const BorderSide(color: Colors.red),
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 icon: _isCancelling
                     ? const SizedBox(
                         width: 16,
                         height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.red,
+                        ),
                       )
                     : const Icon(Icons.cancel_outlined),
-                label: const Text('Cancelar pedido', style: TextStyle(fontWeight: FontWeight.w600)),
+                label: const Text(
+                  'Cancelar pedido',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
               ),
             ),
           ],
@@ -215,7 +279,12 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
   List<_Step> _buildSteps(String status, String deliveryType) {
     if (status == 'cancelado') {
       return [
-        _Step(title: 'Pedido cancelado', done: true, active: false, icon: Icons.cancel),
+        _Step(
+          title: 'Pedido cancelado',
+          done: true,
+          active: false,
+          icon: Icons.cancel,
+        ),
       ];
     }
     final isDone = status == 'entregado';
@@ -226,18 +295,58 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
 
     if (deliveryType == 'recogida') {
       return [
-        _Step(title: 'Pedido realizado', done: true, active: status == 'pendiente', icon: Icons.receipt),
-        _Step(title: 'Confirmado', done: isConfirmed, active: status == 'confirmado', icon: Icons.check_circle),
-        _Step(title: 'Listo para recoger', done: isListo, active: status == 'listo' || status == 'preparando', icon: Icons.store),
+        _Step(
+          title: 'Pedido realizado',
+          done: true,
+          active: status == 'pendiente',
+          icon: Icons.receipt,
+        ),
+        _Step(
+          title: 'Confirmado',
+          done: isConfirmed,
+          active: status == 'confirmado',
+          icon: Icons.check_circle,
+        ),
+        _Step(
+          title: 'Listo para recoger',
+          done: isListo,
+          active: status == 'listo' || status == 'preparando',
+          icon: Icons.store,
+        ),
       ];
     }
 
     return [
-      _Step(title: 'Pedido realizado', done: true, active: status == 'pendiente', icon: Icons.receipt),
-      _Step(title: 'Confirmado por restaurante', done: isConfirmed, active: status == 'confirmado', icon: Icons.restaurant),
-      _Step(title: 'En preparación', done: isPreparing, active: status == 'preparando', icon: Icons.soup_kitchen),
-      _Step(title: 'Listo para despacho', done: isListo, active: status == 'listo', icon: Icons.inventory_2),
-      _Step(title: 'En camino', done: inTransit, active: status == 'en_camino', icon: Icons.delivery_dining),
+      _Step(
+        title: 'Pedido realizado',
+        done: true,
+        active: status == 'pendiente',
+        icon: Icons.receipt,
+      ),
+      _Step(
+        title: 'Confirmado por restaurante',
+        done: isConfirmed,
+        active: status == 'confirmado',
+        icon: Icons.restaurant,
+      ),
+      _Step(
+        title: 'En preparación',
+        done: isPreparing,
+        active: status == 'preparando',
+        icon: Icons.soup_kitchen,
+      ),
+      _Step(
+        title: 'Listo para despacho',
+        done: isListo,
+        active: status == 'listo',
+        icon: Icons.inventory_2,
+      ),
+      _Step(
+        title: 'En camino',
+        done: inTransit,
+        active: status == 'en_camino',
+        icon: Icons.delivery_dining,
+      ),
       _Step(title: 'Entregado', done: isDone, active: isDone, icon: Icons.home),
     ];
   }
@@ -269,9 +378,11 @@ class _StepTile extends StatelessWidget {
     final Color iconColor = step.done
         ? theme.colorScheme.primary
         : step.active
-            ? theme.colorScheme.primary
-            : Colors.grey.shade300;
-    final Color lineColor = step.done ? theme.colorScheme.primary : Colors.grey.shade200;
+        ? theme.colorScheme.primary
+        : Colors.grey.shade300;
+    final Color lineColor = step.done
+        ? theme.colorScheme.primary
+        : Colors.grey.shade200;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -282,13 +393,18 @@ class _StepTile extends StatelessWidget {
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: step.done ? theme.colorScheme.primary : Colors.grey.shade100,
+                color: step.done
+                    ? theme.colorScheme.primary
+                    : Colors.grey.shade100,
                 shape: BoxShape.circle,
               ),
-              child: Icon(step.icon, size: 18, color: step.done ? Colors.white : iconColor),
+              child: Icon(
+                step.icon,
+                size: 18,
+                color: step.done ? Colors.white : iconColor,
+              ),
             ),
-            if (!isLast)
-              Container(width: 2, height: 32, color: lineColor),
+            if (!isLast) Container(width: 2, height: 32, color: lineColor),
           ],
         ),
         const SizedBox(width: 12),
@@ -298,7 +414,9 @@ class _StepTile extends StatelessWidget {
             step.title,
             style: TextStyle(
               fontWeight: step.active ? FontWeight.w600 : FontWeight.normal,
-              color: step.done ? theme.colorScheme.onSurface : Colors.grey.shade500,
+              color: step.done
+                  ? theme.colorScheme.onSurface
+                  : Colors.grey.shade500,
             ),
           ),
         ),

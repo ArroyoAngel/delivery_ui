@@ -5,13 +5,17 @@ class ExpressRestaurantOrder {
   final List<OrderItem> items;
   final String? notes;
 
-  ExpressRestaurantOrder({required this.restaurantId, required this.items, this.notes});
+  ExpressRestaurantOrder({
+    required this.restaurantId,
+    required this.items,
+    this.notes,
+  });
 
   Map<String, dynamic> toJson() => {
-        'restaurantId': restaurantId,
-        'items': items.map((e) => e.toJson()).toList(),
-        if (notes != null) 'notes': notes,
-      };
+    'restaurantId': restaurantId,
+    'items': items.map((e) => e.toJson()).toList(),
+    if (notes != null) 'notes': notes,
+  };
 }
 
 class ExpressCheckoutResult {
@@ -20,7 +24,8 @@ class ExpressCheckoutResult {
 
   ExpressCheckoutResult({required this.groupId, required this.total});
 
-  factory ExpressCheckoutResult.fromJson(Map<String, dynamic> j) => ExpressCheckoutResult(
+  factory ExpressCheckoutResult.fromJson(Map<String, dynamic> j) =>
+      ExpressCheckoutResult(
         groupId: j['groupId'] as String,
         total: double.tryParse((j['total'] ?? '0').toString()) ?? 0.0,
       );
@@ -40,9 +45,34 @@ class OrderItem {
   });
 
   Map<String, dynamic> toJson() => {
-        'menuItemId': menuItemId,
-        'quantity': quantity,
-      };
+    'menuItemId': menuItemId,
+    'quantity': quantity,
+  };
+}
+
+class DeliveryOrderItem {
+  final String name;
+  final int quantity;
+  final double unitPrice;
+
+  DeliveryOrderItem({
+    required this.name,
+    required this.quantity,
+    required this.unitPrice,
+  });
+
+  double get subtotal => unitPrice * quantity;
+
+  factory DeliveryOrderItem.fromJson(Map<String, dynamic> j) =>
+      DeliveryOrderItem(
+        name: (j['item_name'] ?? j['name'] ?? 'Producto').toString(),
+        quantity: int.tryParse((j['quantity'] ?? '1').toString()) ?? 1,
+        unitPrice:
+            double.tryParse(
+              (j['unit_price'] ?? j['unitPrice'] ?? '0').toString(),
+            ) ??
+            0.0,
+      );
 }
 
 class DeliveryOrder {
@@ -56,6 +86,7 @@ class DeliveryOrder {
   final double deliveryFee;
   final String? notes;
   final DateTime createdAt;
+  final List<DeliveryOrderItem> items;
 
   DeliveryOrder({
     required this.id,
@@ -68,20 +99,45 @@ class DeliveryOrder {
     required this.deliveryFee,
     this.notes,
     required this.createdAt,
+    this.items = const [],
   });
 
+  static List<DeliveryOrderItem> _parseItems(dynamic rawItems) {
+    if (rawItems is! List) return const [];
+
+    return rawItems
+        .whereType<Map>()
+        .map((e) => DeliveryOrderItem.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
   factory DeliveryOrder.fromJson(Map<String, dynamic> j) => DeliveryOrder(
-        id: j['id'] as String,
-        restaurantId: j['restaurantId'] as String? ?? j['restaurant_id'] as String? ?? '',
-        restaurantName: j['restaurantName'] as String? ?? j['restaurant_name'] as String?,
-        status: j['status'] as String? ?? 'pendiente',
-        deliveryType: j['deliveryType'] as String? ?? j['delivery_type'] as String? ?? 'delivery',
-        deliveryAddress: j['deliveryAddress'] as String? ?? j['delivery_address'] as String?,
-        total: double.tryParse((j['total'] ?? '0').toString()) ?? 0.0,
-        deliveryFee: double.tryParse((j['deliveryFee'] ?? j['delivery_fee'] ?? '0').toString()) ?? 0.0,
-        notes: j['notes'] as String?,
-        createdAt: DateTime.tryParse(j['createdAt'] as String? ?? j['created_at'] as String? ?? '') ?? DateTime.now(),
-      );
+    id: j['id'] as String,
+    restaurantId:
+        j['restaurantId'] as String? ?? j['restaurant_id'] as String? ?? '',
+    restaurantName:
+        j['restaurantName'] as String? ?? j['restaurant_name'] as String?,
+    status: j['status'] as String? ?? 'pendiente',
+    deliveryType:
+        j['deliveryType'] as String? ??
+        j['delivery_type'] as String? ??
+        'delivery',
+    deliveryAddress:
+        j['deliveryAddress'] as String? ?? j['delivery_address'] as String?,
+    total: double.tryParse((j['total'] ?? '0').toString()) ?? 0.0,
+    deliveryFee:
+        double.tryParse(
+          (j['deliveryFee'] ?? j['delivery_fee'] ?? '0').toString(),
+        ) ??
+        0.0,
+    notes: j['notes'] as String?,
+    createdAt:
+        DateTime.tryParse(
+          j['createdAt'] as String? ?? j['created_at'] as String? ?? '',
+        ) ??
+        DateTime.now(),
+    items: _parseItems(j['items']),
+  );
 }
 
 class OrderService {
@@ -93,11 +149,14 @@ class OrderService {
 
   Future<List<DeliveryOrder>> getOrders() async {
     final data = await _api.get('/orders') as List;
-    return data.map((e) => DeliveryOrder.fromJson(e as Map<String, dynamic>)).toList();
+    return data
+        .map((e) => DeliveryOrder.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<DeliveryOrder> getOrder(String id) async {
     final data = await _api.get('/orders/$id') as Map<String, dynamic>;
+    print("getOrder data: $data");
     return DeliveryOrder.fromJson(data);
   }
 
@@ -135,7 +194,9 @@ class OrderService {
       if (deliveryLat != null) 'deliveryLat': deliveryLat,
       if (deliveryLng != null) 'deliveryLng': deliveryLng,
     };
-    final data = await _api.post('/orders/express-checkout', body) as Map<String, dynamic>;
+    final data =
+        await _api.post('/orders/express-checkout', body)
+            as Map<String, dynamic>;
     return ExpressCheckoutResult.fromJson(data);
   }
 
@@ -158,7 +219,13 @@ class OrderService {
     if (groupOrders.isEmpty) return 'pendiente';
     final allConfirmed = groupOrders.every((o) {
       final s = o['status'] as String? ?? 'pendiente';
-      return ['confirmado', 'preparando', 'listo', 'en_camino', 'entregado'].contains(s);
+      return [
+        'confirmado',
+        'preparando',
+        'listo',
+        'en_camino',
+        'entregado',
+      ].contains(s);
     });
     return allConfirmed ? 'confirmado' : 'pendiente';
   }

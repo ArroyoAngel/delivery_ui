@@ -60,7 +60,9 @@ class _CartSheetState extends State<CartSheet> {
   }
 
   bool get _needsAddress =>
-      _deliveryType == 'delivery' || _deliveryType == 'express' || _cart.isMultiRestaurant;
+      _deliveryType == 'delivery' ||
+      _deliveryType == 'express' ||
+      _cart.isMultiRestaurant;
 
   @override
   void dispose() {
@@ -74,7 +76,9 @@ class _CartSheetState extends State<CartSheet> {
 
   Future<void> _loadDeliveryFee() async {
     try {
-      final r = await _restaurantService.getRestaurant(_cart.restaurantIds.first);
+      final r = await _restaurantService.getRestaurant(
+        _cart.restaurantIds.first,
+      );
       if (mounted) setState(() => _restaurantDeliveryFee = r.deliveryFee ?? 0);
     } catch (_) {}
   }
@@ -138,10 +142,12 @@ class _CartSheetState extends State<CartSheet> {
     for (final restaurantId in byRestaurant.keys) {
       final entries = byRestaurant[restaurantId]!;
       restaurantNames.add(entries.first.restaurantName);
-      expressOrders.add(ExpressRestaurantOrder(
-        restaurantId: restaurantId,
-        items: entries.map((e) => e.item).toList(),
-      ));
+      expressOrders.add(
+        ExpressRestaurantOrder(
+          restaurantId: restaurantId,
+          items: entries.map((e) => e.item).toList(),
+        ),
+      );
     }
 
     final result = await _orderService.expressCheckout(
@@ -149,6 +155,10 @@ class _CartSheetState extends State<CartSheet> {
       deliveryAddress: _selectedAddress?.fullAddress,
       deliveryLat: _selectedAddress?.latitude,
       deliveryLng: _selectedAddress?.longitude,
+    );
+
+    debugPrint(
+      'expressCheckout result: groupId=${result.groupId}, total=${result.total}',
     );
 
     if (!mounted) return;
@@ -197,7 +207,7 @@ class _CartSheetState extends State<CartSheet> {
         MaterialPageRoute(
           builder: (_) => PaymentPage(
             orderId: order.id,
-            amount: _total,
+            amount: order.total,
             restaurantName: restaurantName,
           ),
         ),
@@ -242,16 +252,21 @@ class _CartSheetState extends State<CartSheet> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Mi Carrito',
-                    style: theme.textTheme.titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  'Mi Carrito',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 TextButton(
                   onPressed: () {
                     _cart.clear();
                     Navigator.pop(context);
                   },
-                  child: const Text('Vaciar',
-                      style: TextStyle(color: Colors.red)),
+                  child: const Text(
+                    'Vaciar',
+                    style: TextStyle(color: Colors.red),
+                  ),
                 ),
               ],
             ),
@@ -270,8 +285,11 @@ class _CartSheetState extends State<CartSheet> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.electric_bolt,
-                        color: Colors.orange.shade700, size: 18),
+                    Icon(
+                      Icons.electric_bolt,
+                      color: Colors.orange.shade700,
+                      size: 18,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
@@ -280,14 +298,17 @@ class _CartSheetState extends State<CartSheet> {
                           Text(
                             'Pedido Express automático',
                             style: TextStyle(
-                                color: Colors.orange.shade800,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13),
+                              color: Colors.orange.shade800,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
                           ),
                           Text(
                             'Elegiste productos de ${byRestaurant.length} restaurantes distintos. Se procesará un pedido Express por restaurante con tarifa ×2.',
                             style: TextStyle(
-                                color: Colors.orange.shade700, fontSize: 12),
+                              color: Colors.orange.shade700,
+                              fontSize: 12,
+                            ),
                           ),
                         ],
                       ),
@@ -313,27 +334,34 @@ class _CartSheetState extends State<CartSheet> {
                         padding: const EdgeInsets.only(top: 8, bottom: 4),
                         child: Row(
                           children: [
-                            Icon(Icons.storefront_outlined,
-                                size: 14,
-                                color: theme.colorScheme.primary),
+                            Icon(
+                              Icons.storefront_outlined,
+                              size: 14,
+                              color: theme.colorScheme.primary,
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               byRestaurant[restaurantId]!.first.restaurantName,
                               style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                  color: theme.colorScheme.primary),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                                color: theme.colorScheme.primary,
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ...byRestaurant[restaurantId]!.map((e) => _CartItemRow(
-                          entry: e,
-                          onAdd: () => _cart.addItem(
-                              e.item, e.restaurantId, e.restaurantName),
-                          onRemove: () =>
-                              _cart.removeItem(e.item.menuItemId),
-                        )),
+                    ...byRestaurant[restaurantId]!.map(
+                      (e) => _CartItemRow(
+                        entry: e,
+                        onAdd: () => _cart.addItem(
+                          e.item,
+                          e.restaurantId,
+                          e.restaurantName,
+                        ),
+                        onRemove: () => _cart.removeItem(e.item.menuItemId),
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -397,101 +425,117 @@ class _CartSheetState extends State<CartSheet> {
                       ),
                     )
                   : _addresses.isEmpty
-                      ? GestureDetector(
-                          onTap: () async {
-                            final added = await Navigator.push<bool>(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const AddressesPage()),
-                            );
-                            if (added == true) _loadAddresses();
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.red.shade50,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.red.shade300),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(Icons.location_off_outlined,
-                                    size: 16, color: Colors.red.shade700),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Necesitas agregar una dirección de entrega',
-                                    style: TextStyle(
-                                        color: Colors.red.shade700,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w500),
-                                  ),
-                                ),
-                                Icon(Icons.add,
-                                    size: 16, color: Colors.red.shade700),
-                              ],
-                            ),
+                  ? GestureDetector(
+                      onTap: () async {
+                        final added = await Navigator.push<bool>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const AddressesPage(),
                           ),
-                        )
-                      : GestureDetector(
-                          onTap: () async {
-                            final picked = await showModalBottomSheet<UserAddress>(
-                              context: context,
-                              builder: (_) => _AddressPicker(
-                                addresses: _addresses,
-                                selected: _selectedAddress,
-                              ),
-                            );
-                            if (picked != null) {
-                              setState(() => _selectedAddress = picked);
-                            }
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                  color: _selectedAddress != null
-                                      ? Theme.of(context)
-                                          .colorScheme
-                                          .primary
-                                          .withValues(alpha: 0.5)
-                                      : Colors.orange.shade300),
+                        );
+                        if (added == true) _loadAddresses();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.red.shade300),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.location_off_outlined,
+                              size: 16,
+                              color: Colors.red.shade700,
                             ),
-                            child: Row(
-                              children: [
-                                Icon(Icons.location_on_outlined,
-                                    size: 16,
-                                    color: _selectedAddress != null
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Colors.orange.shade700),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _selectedAddress != null
-                                        ? _selectedAddress!.fullAddress
-                                        : 'Selecciona dirección de entrega',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                      color: _selectedAddress != null
-                                          ? Colors.black87
-                                          : Colors.orange.shade700,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Necesitas agregar una dirección de entrega',
+                                style: TextStyle(
+                                  color: Colors.red.shade700,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
                                 ),
-                                Icon(Icons.expand_more,
-                                    size: 18,
-                                    color: Colors.grey.shade500),
-                              ],
+                              ),
                             ),
+                            Icon(
+                              Icons.add,
+                              size: 16,
+                              color: Colors.red.shade700,
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : GestureDetector(
+                      onTap: () async {
+                        final picked = await showModalBottomSheet<UserAddress>(
+                          context: context,
+                          builder: (_) => _AddressPicker(
+                            addresses: _addresses,
+                            selected: _selectedAddress,
+                          ),
+                        );
+                        if (picked != null) {
+                          setState(() => _selectedAddress = picked);
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: _selectedAddress != null
+                                ? Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.5)
+                                : Colors.orange.shade300,
                           ),
                         ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.location_on_outlined,
+                              size: 16,
+                              color: _selectedAddress != null
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Colors.orange.shade700,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _selectedAddress != null
+                                    ? _selectedAddress!.fullAddress
+                                    : 'Selecciona dirección de entrega',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: _selectedAddress != null
+                                      ? Colors.black87
+                                      : Colors.orange.shade700,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Icon(
+                              Icons.expand_more,
+                              size: 18,
+                              color: Colors.grey.shade500,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
             ),
 
           // Totals
@@ -504,8 +548,10 @@ class _CartSheetState extends State<CartSheet> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Subtotal',
-                        style: TextStyle(color: Colors.grey.shade600)),
+                    Text(
+                      'Subtotal',
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
                     Text('Bs ${_subtotal.toStringAsFixed(2)}'),
                   ],
                 ),
@@ -525,9 +571,10 @@ class _CartSheetState extends State<CartSheet> {
                         ),
                       ),
                       _restaurantDeliveryFee == null
-                          ? Text('—',
-                              style:
-                                  TextStyle(color: Colors.grey.shade400))
+                          ? Text(
+                              '—',
+                              style: TextStyle(color: Colors.grey.shade400),
+                            )
                           : Text(
                               _deliveryFee == 0
                                   ? 'Gratis'
@@ -549,11 +596,17 @@ class _CartSheetState extends State<CartSheet> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Envío Express',
-                          style: TextStyle(color: Colors.orange.shade700)),
-                      Text('calculado al confirmar',
-                          style: TextStyle(
-                              color: Colors.grey.shade400, fontSize: 12)),
+                      Text(
+                        'Envío Express',
+                        style: TextStyle(color: Colors.orange.shade700),
+                      ),
+                      Text(
+                        'calculado al confirmar',
+                        style: TextStyle(
+                          color: Colors.grey.shade400,
+                          fontSize: 12,
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -562,9 +615,13 @@ class _CartSheetState extends State<CartSheet> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Total',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 16)),
+                      const Text(
+                        'Total',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
                       Text(
                         'Bs ${_total.toStringAsFixed(2)}',
                         style: TextStyle(
@@ -580,13 +637,18 @@ class _CartSheetState extends State<CartSheet> {
                   const SizedBox(height: 6),
                   Row(
                     children: [
-                      Icon(Icons.info_outline,
-                          size: 13, color: Colors.orange.shade700),
+                      Icon(
+                        Icons.info_outline,
+                        size: 13,
+                        color: Colors.orange.shade700,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         'Se requiere pago previo por transferencia',
                         style: TextStyle(
-                            fontSize: 11, color: Colors.orange.shade700),
+                          fontSize: 11,
+                          color: Colors.orange.shade700,
+                        ),
                       ),
                     ],
                   ),
@@ -595,8 +657,9 @@ class _CartSheetState extends State<CartSheet> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed:
-                        (_isOrdering || _cart.isEmpty) ? null : _checkout,
+                    onPressed: (_isOrdering || _cart.isEmpty)
+                        ? null
+                        : _checkout,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isMulti
                           ? Colors.orange.shade700
@@ -604,7 +667,8 @@ class _CartSheetState extends State<CartSheet> {
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       elevation: 0,
                     ),
                     child: _isOrdering
@@ -612,17 +676,20 @@ class _CartSheetState extends State<CartSheet> {
                             height: 20,
                             width: 20,
                             child: CircularProgressIndicator(
-                                color: Colors.white, strokeWidth: 2),
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
                           )
                         : Text(
                             isMulti
                                 ? '⚡ Confirmar Express'
                                 : _deliveryType == 'recogida'
-                                    ? 'Confirmar pedido'
-                                    : 'Confirmar pedido',
+                                ? 'Confirmar pedido'
+                                : 'Confirmar pedido',
                             style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600),
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                   ),
                 ),
@@ -666,27 +733,29 @@ class _DeliveryChip extends StatelessWidget {
           color: disabled
               ? Colors.grey.shade100
               : selected
-                  ? effectiveColor.withValues(alpha: 0.1)
-                  : Colors.white,
+              ? effectiveColor.withValues(alpha: 0.1)
+              : Colors.white,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: disabled
                 ? Colors.grey.shade300
                 : selected
-                    ? effectiveColor
-                    : Colors.grey.shade300,
+                ? effectiveColor
+                : Colors.grey.shade300,
             width: selected && !disabled ? 1.5 : 1,
           ),
         ),
         child: Column(
           children: [
-            Icon(icon,
-                size: 18,
-                color: disabled
-                    ? Colors.grey.shade400
-                    : selected
-                        ? effectiveColor
-                        : Colors.grey.shade500),
+            Icon(
+              icon,
+              size: 18,
+              color: disabled
+                  ? Colors.grey.shade400
+                  : selected
+                  ? effectiveColor
+                  : Colors.grey.shade500,
+            ),
             const SizedBox(height: 3),
             Text(
               label,
@@ -695,8 +764,8 @@ class _DeliveryChip extends StatelessWidget {
                 color: disabled
                     ? Colors.grey.shade400
                     : selected
-                        ? effectiveColor
-                        : Colors.grey.shade600,
+                    ? effectiveColor
+                    : Colors.grey.shade600,
                 fontWeight: selected && !disabled
                     ? FontWeight.w600
                     : FontWeight.normal,
@@ -728,17 +797,20 @@ class _CartItemRow extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Text(entry.item.name,
-                style: const TextStyle(fontSize: 14)),
+            child: Text(entry.item.name, style: const TextStyle(fontSize: 14)),
           ),
           Row(
             children: [
               _Btn(icon: Icons.remove, onTap: onRemove),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Text('${entry.item.quantity}',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 15)),
+                child: Text(
+                  '${entry.item.quantity}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                  ),
+                ),
               ),
               _Btn(icon: Icons.add, onTap: onAdd, filled: true),
               const SizedBox(width: 12),
@@ -748,8 +820,9 @@ class _CartItemRow extends StatelessWidget {
                   'Bs ${(entry.item.price * entry.item.quantity).toStringAsFixed(2)}',
                   textAlign: TextAlign.end,
                   style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: theme.colorScheme.primary),
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.primary,
+                  ),
                 ),
               ),
             ],
@@ -780,9 +853,11 @@ class _Btn extends StatelessWidget {
           color: filled ? primary : Colors.transparent,
           border: filled ? null : Border.all(color: Colors.grey.shade300),
         ),
-        child: Icon(icon,
-            size: 13,
-            color: filled ? Colors.white : Colors.grey.shade600),
+        child: Icon(
+          icon,
+          size: 13,
+          color: filled ? Colors.white : Colors.grey.shade600,
+        ),
       ),
     );
   }
@@ -816,14 +891,19 @@ class _AddressPicker extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Dirección de entrega',
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  'Dirección de entrega',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 TextButton(
                   onPressed: () async {
                     Navigator.pop(context);
-                    await Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const AddressesPage()));
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AddressesPage()),
+                    );
                   },
                   child: const Text('Administrar'),
                 ),
@@ -838,17 +918,21 @@ class _AddressPicker extends StatelessWidget {
                 Icons.location_on_outlined,
                 color: isSelected ? theme.colorScheme.primary : Colors.grey,
               ),
-              title: Text(addr.fullAddress,
-                  style: TextStyle(
-                    fontWeight:
-                        isSelected ? FontWeight.w600 : FontWeight.normal,
-                  )),
+              title: Text(
+                addr.fullAddress,
+                style: TextStyle(
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
               subtitle: addr.reference != null && addr.reference!.isNotEmpty
                   ? Text(addr.reference!, style: const TextStyle(fontSize: 12))
                   : null,
               trailing: isSelected
-                  ? Icon(Icons.check_circle,
-                      color: theme.colorScheme.primary, size: 20)
+                  ? Icon(
+                      Icons.check_circle,
+                      color: theme.colorScheme.primary,
+                      size: 20,
+                    )
                   : null,
               onTap: () => Navigator.pop(context, addr),
             );

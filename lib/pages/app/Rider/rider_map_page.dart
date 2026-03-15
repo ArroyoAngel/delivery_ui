@@ -22,6 +22,8 @@ class _RiderMapPageState extends State<RiderMapPage> {
   geo.Position? _riderPosition;
   bool _styleLoaded = false;
   bool _loadingRoute = true;
+  bool _isCentering = false;
+  bool _hasCenteredToRider = false;
   String? _routeError;
   String? _gpsError;
 
@@ -30,12 +32,14 @@ class _RiderMapPageState extends State<RiderMapPage> {
     final result = <_Waypoint>[];
 
     if (_riderPosition != null) {
-      result.add(_Waypoint(
-        lat: _riderPosition!.latitude,
-        lng: _riderPosition!.longitude,
-        label: 'Tu ubicación',
-        type: WaypointType.rider,
-      ));
+      result.add(
+        _Waypoint(
+          lat: _riderPosition!.latitude,
+          lng: _riderPosition!.longitude,
+          label: 'Tu ubicación',
+          type: WaypointType.rider,
+        ),
+      );
     }
 
     // Restaurantes únicos (pickup) — solo los que aún no han sido recogidos
@@ -44,27 +48,33 @@ class _RiderMapPageState extends State<RiderMapPage> {
       // Si el rider ya recogió este pedido, no necesita pasar por el restaurante
       if (order.status == 'en_camino' || order.status == 'entregado') continue;
       final key = '${order.restaurantLat},${order.restaurantLng}';
-      if (!seen.contains(key) && order.restaurantLat != null && order.restaurantLng != null) {
+      if (!seen.contains(key) &&
+          order.restaurantLat != null &&
+          order.restaurantLng != null) {
         seen.add(key);
-        result.add(_Waypoint(
-          lat: order.restaurantLat!,
-          lng: order.restaurantLng!,
-          label: order.restaurantName,
-          type: WaypointType.pickup,
-          status: order.status,
-        ));
+        result.add(
+          _Waypoint(
+            lat: order.restaurantLat!,
+            lng: order.restaurantLng!,
+            label: order.restaurantName,
+            type: WaypointType.pickup,
+            status: order.status,
+          ),
+        );
       }
     }
 
     // Clientes (entrega)
     for (final order in widget.group.orders) {
       if (order.clientLat != null && order.clientLng != null) {
-        result.add(_Waypoint(
-          lat: order.clientLat!,
-          lng: order.clientLng!,
-          label: order.clientAddress ?? 'Destino',
-          type: WaypointType.delivery,
-        ));
+        result.add(
+          _Waypoint(
+            lat: order.clientLat!,
+            lng: order.clientLng!,
+            label: order.clientAddress ?? 'Destino',
+            type: WaypointType.delivery,
+          ),
+        );
       }
     }
 
@@ -90,16 +100,56 @@ class _RiderMapPageState extends State<RiderMapPage> {
       geo.Position? pos;
       try {
         pos = await geo.Geolocator.getCurrentPosition(
-          locationSettings: const geo.LocationSettings(accuracy: geo.LocationAccuracy.high),
+          locationSettings: const geo.LocationSettings(
+            accuracy: geo.LocationAccuracy.high,
+          ),
         ).timeout(const Duration(seconds: 8));
       } catch (_) {
         pos = await geo.Geolocator.getLastKnownPosition();
       }
       if (mounted && pos != null) setState(() => _riderPosition = pos);
+
+      if (pos != null && _mapboxMap != null && !_hasCenteredToRider) {
+        await _centerToMyLocation();
+      }
     } catch (e) {
       if (mounted) setState(() => _gpsError = e.toString());
     }
     _tryDrawRoute();
+  }
+
+  Future<void> _centerToMyLocation() async {
+    if (_isCentering || _mapboxMap == null) return;
+
+    setState(() => _isCentering = true);
+    try {
+      if (_riderPosition == null) {
+        await _getLocation();
+      }
+
+      final pos = _riderPosition;
+      if (pos == null || _mapboxMap == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No se pudo obtener tu ubicación actual'),
+            ),
+          );
+        }
+        return;
+      }
+
+      await _mapboxMap!.flyTo(
+        CameraOptions(
+          center: Point(coordinates: Position(pos.longitude, pos.latitude)),
+          zoom: 16,
+        ),
+        MapAnimationOptions(duration: 900),
+      );
+      _hasCenteredToRider = true;
+    } finally {
+      if (mounted) setState(() => _isCentering = false);
+    }
   }
 
   void _tryDrawRoute() {
@@ -114,7 +164,9 @@ class _RiderMapPageState extends State<RiderMapPage> {
   Future<void> _drawRoute() async {
     final wps = _waypoints;
     if (wps.length < 2) {
-      setState(() { _loadingRoute = false; });
+      setState(() {
+        _loadingRoute = false;
+      });
       return;
     }
 
@@ -127,7 +179,8 @@ class _RiderMapPageState extends State<RiderMapPage> {
       );
 
       final response = await http.get(url);
-      if (response.statusCode != 200) throw Exception('Error API: ${response.statusCode}');
+      if (response.statusCode != 200)
+        throw Exception('Error API: ${response.statusCode}');
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final routes = data['routes'] as List?;
@@ -182,21 +235,19 @@ class _RiderMapPageState extends State<RiderMapPage> {
     );
 
     // Número
-    final builder = ui.ParagraphBuilder(
-      ui.ParagraphStyle(
-        textAlign: TextAlign.center,
-        fontSize: 20,
-        fontWeight: ui.FontWeight.w700,
-      ),
-    )
-      ..pushStyle(ui.TextStyle(color: Colors.white))
-      ..addText('$number');
+    final builder =
+        ui.ParagraphBuilder(
+            ui.ParagraphStyle(
+              textAlign: TextAlign.center,
+              fontSize: 20,
+              fontWeight: ui.FontWeight.w700,
+            ),
+          )
+          ..pushStyle(ui.TextStyle(color: Colors.white))
+          ..addText('$number');
     final para = builder.build()
       ..layout(const ui.ParagraphConstraints(width: size));
-    canvas.drawParagraph(
-      para,
-      ui.Offset(0, (size - para.height) / 2),
-    );
+    canvas.drawParagraph(para, ui.Offset(0, (size - para.height) / 2));
 
     final picture = recorder.endRecording();
     final img = await picture.toImage(size.toInt(), size.toInt());
@@ -211,7 +262,10 @@ class _RiderMapPageState extends State<RiderMapPage> {
     await _fitCamera(map, wps);
   }
 
-  Future<void> _addRouteToMap(List<List<double>> routeCoords, List<_Waypoint> wps) async {
+  Future<void> _addRouteToMap(
+    List<List<double>> routeCoords,
+    List<_Waypoint> wps,
+  ) async {
     final map = _mapboxMap;
     if (map == null) return;
 
@@ -222,41 +276,50 @@ class _RiderMapPageState extends State<RiderMapPage> {
       'properties': {},
     });
 
-    await map.style.addSource(GeoJsonSource(id: 'route-source', data: routeGeoJson));
-    await map.style.addLayer(LineLayer(
-      id: 'route-layer',
-      sourceId: 'route-source',
-      lineColor: const Color(0xFF1565C0).toARGB32(),
-      lineWidth: 5.0,
-      lineOpacity: 0.85,
-      lineCap: LineCap.ROUND,
-      lineJoin: LineJoin.ROUND,
-    ));
+    await map.style.addSource(
+      GeoJsonSource(id: 'route-source', data: routeGeoJson),
+    );
+    await map.style.addLayer(
+      LineLayer(
+        id: 'route-layer',
+        sourceId: 'route-source',
+        lineColor: const Color(0xFF1565C0).toARGB32(),
+        lineWidth: 5.0,
+        lineOpacity: 0.85,
+        lineCap: LineCap.ROUND,
+        lineJoin: LineJoin.ROUND,
+      ),
+    );
 
     await _placeMarkers(map, wps);
     await _fitCamera(map, wps);
   }
 
   Future<void> _placeMarkers(MapboxMap map, List<_Waypoint> wps) async {
-    final annotationManager = await map.annotations.createPointAnnotationManager();
+    final annotationManager = await map.annotations
+        .createPointAnnotationManager();
     for (int i = 0; i < wps.length; i++) {
       final wp = wps[i];
       final color = switch (wp.type) {
-        WaypointType.rider    => const Color(0xFF1565C0),
-        WaypointType.pickup   => const Color(0xFFE53935),
+        WaypointType.rider => const Color(0xFF1565C0),
+        WaypointType.pickup => const Color(0xFFE53935),
         WaypointType.delivery => const Color(0xFFFF8F00),
       };
       final markerImage = await _createMarkerImage(color, i + 1);
-      await annotationManager.create(PointAnnotationOptions(
-        geometry: Point(coordinates: Position(wp.lng, wp.lat)),
-        image: markerImage,
-        iconSize: 1.0,
-      ));
+      await annotationManager.create(
+        PointAnnotationOptions(
+          geometry: Point(coordinates: Position(wp.lng, wp.lat)),
+          image: markerImage,
+          iconSize: 1.0,
+        ),
+      );
     }
   }
 
   Future<void> _fitCamera(MapboxMap map, List<_Waypoint> wps) async {
-    final points = wps.map((w) => Point(coordinates: Position(w.lng, w.lat))).toList();
+    final points = wps
+        .map((w) => Point(coordinates: Position(w.lng, w.lat)))
+        .toList();
     final camera = await map.cameraForCoordinatesPadding(
       points,
       CameraOptions(),
@@ -289,9 +352,11 @@ class _RiderMapPageState extends State<RiderMapPage> {
             onMapCreated: _onMapCreated,
             onStyleLoadedListener: _onStyleLoaded,
             cameraOptions: CameraOptions(
-              center: Point(coordinates: wps.isNotEmpty
-                  ? Position(wps.first.lng, wps.first.lat)
-                  : Position(-68.15, -16.50)),
+              center: Point(
+                coordinates: wps.isNotEmpty
+                    ? Position(wps.first.lng, wps.first.lat)
+                    : Position(-68.15, -16.50),
+              ),
               zoom: 13,
             ),
           ),
@@ -314,6 +379,38 @@ class _RiderMapPageState extends State<RiderMapPage> {
             ),
           ),
 
+          // Recentrar a mi ubicación
+          Positioned(
+            right: 16,
+            bottom: MediaQuery.of(context).padding.bottom + 260,
+            child: Material(
+              color: Colors.white,
+              shape: const CircleBorder(),
+              elevation: 6,
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _isCentering ? null : _centerToMyLocation,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: _isCentering
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: theme.colorScheme.primary,
+                          ),
+                        )
+                      : Icon(
+                          Icons.my_location,
+                          size: 22,
+                          color: theme.colorScheme.primary,
+                        ),
+                ),
+              ),
+            ),
+          ),
+
           // Loading overlay
           if (_loadingRoute)
             Positioned(
@@ -322,11 +419,16 @@ class _RiderMapPageState extends State<RiderMapPage> {
               right: 0,
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(20),
-                    boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 8)],
+                    boxShadow: [
+                      BoxShadow(color: Colors.black26, blurRadius: 8),
+                    ],
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -334,10 +436,16 @@ class _RiderMapPageState extends State<RiderMapPage> {
                       SizedBox(
                         width: 14,
                         height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: theme.colorScheme.primary),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: theme.colorScheme.primary,
+                        ),
                       ),
                       const SizedBox(width: 8),
-                      const Text('Calculando ruta...', style: TextStyle(fontSize: 13)),
+                      const Text(
+                        'Calculando ruta...',
+                        style: TextStyle(fontSize: 13),
+                      ),
                     ],
                   ),
                 ),
@@ -377,19 +485,28 @@ class _RiderMapPageState extends State<RiderMapPage> {
                   const SizedBox(height: 12),
                   Text(
                     'Ruta de entrega',
-                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   if (_gpsError != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 4, bottom: 4),
                       child: Row(
                         children: [
-                          const Icon(Icons.location_off, size: 14, color: Colors.orange),
+                          const Icon(
+                            Icons.location_off,
+                            size: 14,
+                            color: Colors.orange,
+                          ),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               'Sin ubicación GPS — el marcador de tu posición no aparece',
-                              style: TextStyle(color: Colors.orange.shade700, fontSize: 12),
+                              style: TextStyle(
+                                color: Colors.orange.shade700,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
                         ],
@@ -400,7 +517,10 @@ class _RiderMapPageState extends State<RiderMapPage> {
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
                         'Sin ruta: $_routeError',
-                        style: const TextStyle(color: Colors.orange, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.orange,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                   if (!_loadingRoute && _routeError == null && wps.length < 2)
@@ -408,13 +528,20 @@ class _RiderMapPageState extends State<RiderMapPage> {
                       padding: const EdgeInsets.only(top: 8),
                       child: Row(
                         children: [
-                          Icon(Icons.info_outline, size: 14, color: Colors.grey.shade500),
+                          Icon(
+                            Icons.info_outline,
+                            size: 14,
+                            color: Colors.grey.shade500,
+                          ),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               'La orden no tiene coordenadas de entrega. '
                               'El cliente debe agregar una dirección con ubicación al pedir.',
-                              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
                         ],
@@ -425,18 +552,28 @@ class _RiderMapPageState extends State<RiderMapPage> {
                     constraints: const BoxConstraints(maxHeight: 200),
                     child: ListView.separated(
                       shrinkWrap: true,
-                      itemCount: wps.where((w) => w.type != WaypointType.rider).length,
+                      itemCount: wps
+                          .where((w) => w.type != WaypointType.rider)
+                          .length,
                       separatorBuilder: (_, __) => Padding(
                         padding: const EdgeInsets.only(left: 16),
-                        child: Container(height: 20, width: 2, color: Colors.grey.shade200),
+                        child: Container(
+                          height: 20,
+                          width: 2,
+                          color: Colors.grey.shade200,
+                        ),
                       ),
                       itemBuilder: (_, i) {
-                        final wp = wps.where((w) => w.type != WaypointType.rider).toList()[i];
+                        final wp = wps
+                            .where((w) => w.type != WaypointType.rider)
+                            .toList()[i];
                         final labelColor = wp.type == WaypointType.pickup
                             ? theme.colorScheme.primary
                             : Colors.orange[700];
                         // +2 porque el marcador 1 en el mapa es siempre el rider
-                        final markerIndex = _riderPosition != null ? i + 2 : i + 1;
+                        final markerIndex = _riderPosition != null
+                            ? i + 2
+                            : i + 1;
                         return Row(
                           children: [
                             _WaypointDot(index: markerIndex, type: wp.type),
@@ -455,7 +592,8 @@ class _RiderMapPageState extends State<RiderMapPage> {
                                       color: labelColor,
                                     ),
                                   ),
-                                  if (wp.type == WaypointType.pickup && wp.status != null)
+                                  if (wp.type == WaypointType.pickup &&
+                                      wp.status != null)
                                     _MapPrepBadge(status: wp.status!),
                                 ],
                               ),
@@ -483,7 +621,13 @@ class _Waypoint {
   final String label;
   final WaypointType type;
   final String? status; // order preparation status (pickup waypoints only)
-  const _Waypoint({required this.lat, required this.lng, required this.label, required this.type, this.status});
+  const _Waypoint({
+    required this.lat,
+    required this.lng,
+    required this.label,
+    required this.type,
+    this.status,
+  });
 }
 
 class _MapPrepBadge extends StatelessWidget {
@@ -493,15 +637,22 @@ class _MapPrepBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (status) {
-      'listo'      => ('✓ Listo para recoger', Colors.green.shade700),
+      'listo' => ('✓ Listo para recoger', Colors.green.shade700),
       'preparando' => ('⏱ Preparando...', Colors.orange.shade700),
-      'en_camino'  => ('En camino', Colors.blue.shade700),
+      'en_camino' => ('En camino', Colors.blue.shade700),
       'confirmado' => ('Confirmado', Colors.blue.shade400),
-      _            => ('Pendiente', Colors.grey.shade500),
+      _ => ('Pendiente', Colors.grey.shade500),
     };
     return Padding(
       padding: const EdgeInsets.only(top: 2),
-      child: Text(label, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500)),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          color: color,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
     );
   }
 }
@@ -516,8 +667,8 @@ class _WaypointDot extends StatelessWidget {
     final color = type == WaypointType.rider
         ? Colors.grey[600]!
         : type == WaypointType.pickup
-            ? Theme.of(context).colorScheme.primary
-            : Colors.orange[700]!;
+        ? Theme.of(context).colorScheme.primary
+        : Colors.orange[700]!;
 
     return Container(
       width: 28,
@@ -526,7 +677,11 @@ class _WaypointDot extends StatelessWidget {
       child: Center(
         child: Text(
           '$index',
-          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
     );

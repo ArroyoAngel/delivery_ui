@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 typedef PickedLocation = ({double latitude, double longitude});
@@ -20,6 +21,7 @@ class LocationPickerPage extends StatefulWidget {
 class _LocationPickerPageState extends State<LocationPickerPage> {
   MapboxMap? _mapboxMap;
   bool _isReady = false;
+  bool _isLocating = false;
 
   // Santa Cruz de la Sierra, Bolivia (default center)
   static final Position _defaultCenter = Position(-63.1812, -17.7863);
@@ -27,6 +29,64 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   void _onMapCreated(MapboxMap mapboxMap) {
     _mapboxMap = mapboxMap;
     setState(() => _isReady = true);
+
+    // Si no hay ubicación inicial provista, intentar centrar en la ubicación actual.
+    if (widget.initialLatitude == null || widget.initialLongitude == null) {
+      _centerToCurrentLocation();
+    }
+  }
+
+  Future<void> _centerToCurrentLocation() async {
+    if (_mapboxMap == null || _isLocating) return;
+
+    setState(() => _isLocating = true);
+    try {
+      var permission = await geo.Geolocator.checkPermission();
+      if (permission == geo.LocationPermission.denied) {
+        permission = await geo.Geolocator.requestPermission();
+      }
+
+      if (permission == geo.LocationPermission.denied ||
+          permission == geo.LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No se concedió permiso de ubicación'),
+            ),
+          );
+        }
+        return;
+      }
+
+      geo.Position? pos;
+      try {
+        pos = await geo.Geolocator.getCurrentPosition(
+          locationSettings: const geo.LocationSettings(
+            accuracy: geo.LocationAccuracy.high,
+          ),
+        ).timeout(const Duration(seconds: 8));
+      } catch (_) {
+        pos = await geo.Geolocator.getLastKnownPosition();
+      }
+
+      if (pos == null || _mapboxMap == null) return;
+
+      final camera = CameraOptions(
+        center: Point(coordinates: Position(pos.longitude, pos.latitude)),
+        zoom: 16,
+      );
+      await _mapboxMap!.flyTo(camera, MapAnimationOptions(duration: 900));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo obtener tu ubicación actual'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLocating = false);
+    }
   }
 
   Future<void> _confirm() async {
@@ -34,10 +94,10 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     final cameraState = await _mapboxMap!.getCameraState();
     final coords = cameraState.center.coordinates;
     if (mounted) {
-      Navigator.pop<PickedLocation>(
-        context,
-        (latitude: coords.lat.toDouble(), longitude: coords.lng.toDouble()),
-      );
+      Navigator.pop<PickedLocation>(context, (
+        latitude: coords.lat.toDouble(),
+        longitude: coords.lng.toDouble(),
+      ));
     }
   }
 
@@ -45,14 +105,17 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final initialCenter = (widget.initialLatitude != null && widget.initialLongitude != null)
+    final initialCenter =
+        (widget.initialLatitude != null && widget.initialLongitude != null)
         ? Position(widget.initialLongitude!, widget.initialLatitude!)
         : _defaultCenter;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Seleccionar ubicación',
-            style: TextStyle(fontWeight: FontWeight.w700)),
+        title: const Text(
+          'Seleccionar ubicación',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
@@ -104,8 +167,11 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.touch_app_outlined,
-                      color: theme.colorScheme.primary, size: 20),
+                  Icon(
+                    Icons.touch_app_outlined,
+                    color: theme.colorScheme.primary,
+                    size: 20,
+                  ),
                   const SizedBox(width: 10),
                   const Expanded(
                     child: Text(
@@ -136,8 +202,43 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                 disabledBackgroundColor: Colors.grey.shade300,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 elevation: 4,
+              ),
+            ),
+          ),
+
+          // Recenter button (Google Maps-style)
+          Positioned(
+            right: 24,
+            bottom: 108,
+            child: Material(
+              color: Colors.white,
+              shape: const CircleBorder(),
+              elevation: 5,
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _isReady && !_isLocating
+                    ? _centerToCurrentLocation
+                    : null,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: _isLocating
+                      ? SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            color: theme.colorScheme.primary,
+                          ),
+                        )
+                      : Icon(
+                          Icons.my_location,
+                          color: theme.colorScheme.primary,
+                          size: 22,
+                        ),
+                ),
               ),
             ),
           ),
