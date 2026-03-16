@@ -21,13 +21,21 @@ class ExpressRestaurantOrder {
 class ExpressCheckoutResult {
   final String groupId;
   final double total;
+  final String? paymentReference;
 
-  ExpressCheckoutResult({required this.groupId, required this.total});
+  ExpressCheckoutResult({
+    required this.groupId,
+    required this.total,
+    this.paymentReference,
+  });
 
   factory ExpressCheckoutResult.fromJson(Map<String, dynamic> j) =>
       ExpressCheckoutResult(
         groupId: j['groupId'] as String,
         total: double.tryParse((j['total'] ?? '0').toString()) ?? 0.0,
+        paymentReference:
+            j['paymentReference'] as String? ??
+            j['payment_reference'] as String?,
       );
 }
 
@@ -84,9 +92,11 @@ class DeliveryOrder {
   final String? deliveryAddress;
   final double total;
   final double deliveryFee;
+  final double platformFee;
   final String? notes;
   final DateTime createdAt;
   final List<DeliveryOrderItem> items;
+  final String? paymentReference;
 
   DeliveryOrder({
     required this.id,
@@ -97,9 +107,11 @@ class DeliveryOrder {
     this.deliveryAddress,
     required this.total,
     required this.deliveryFee,
+    this.platformFee = 0,
     this.notes,
     required this.createdAt,
     this.items = const [],
+    this.paymentReference,
   });
 
   static List<DeliveryOrderItem> _parseItems(dynamic rawItems) {
@@ -130,6 +142,11 @@ class DeliveryOrder {
           (j['deliveryFee'] ?? j['delivery_fee'] ?? '0').toString(),
         ) ??
         0.0,
+    platformFee:
+        double.tryParse(
+          (j['platformFee'] ?? j['platform_fee'] ?? '0').toString(),
+        ) ??
+        0.0,
     notes: j['notes'] as String?,
     createdAt:
         DateTime.tryParse(
@@ -137,6 +154,8 @@ class DeliveryOrder {
         ) ??
         DateTime.now(),
     items: _parseItems(j['items']),
+    paymentReference:
+        j['paymentReference'] as String? ?? j['payment_reference'] as String?,
   );
 }
 

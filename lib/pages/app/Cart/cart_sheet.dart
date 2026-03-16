@@ -171,6 +171,7 @@ class _CartSheetState extends State<CartSheet> {
           groupId: result.groupId,
           amount: result.total,
           restaurantName: restaurantNames.join(' + '),
+          paymentReference: result.paymentReference,
         ),
       ),
     );
@@ -207,8 +208,9 @@ class _CartSheetState extends State<CartSheet> {
         MaterialPageRoute(
           builder: (_) => PaymentPage(
             orderId: order.id,
-            amount: order.total,
+            amount: order.total + order.platformFee,
             restaurantName: restaurantName,
+            paymentReference: order.paymentReference,
           ),
         ),
       );

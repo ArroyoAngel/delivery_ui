@@ -7,10 +7,12 @@ import '../../../services/cart_service.dart';
 class PaymentPage extends StatefulWidget {
   /// Para órdenes simples. Mutuamente excluyente con [groupId].
   final String? orderId;
+
   /// Para checkout express multi-restaurante.
   final String? groupId;
   final double amount;
   final String restaurantName;
+  final String? paymentReference;
 
   const PaymentPage({
     super.key,
@@ -18,6 +20,7 @@ class PaymentPage extends StatefulWidget {
     this.groupId,
     required this.amount,
     required this.restaurantName,
+    this.paymentReference,
   }) : assert(orderId != null || groupId != null);
 
   @override
@@ -43,9 +46,9 @@ class _PaymentPageState extends State<PaymentPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al guardar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error al guardar: $e')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -80,9 +83,9 @@ class _PaymentPageState extends State<PaymentPage> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al verificar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error al verificar: $e')));
     } finally {
       if (mounted) setState(() => _verifying = false);
     }
@@ -92,6 +95,12 @@ class _PaymentPageState extends State<PaymentPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final reference =
+        widget.paymentReference ??
+        (widget.groupId ?? widget.orderId!).substring(0, 8).toUpperCase();
+    final referencePreview = reference.length > 10
+        ? '${reference.substring(0, 10)}...'
+        : reference;
 
     return Scaffold(
       appBar: AppBar(
@@ -131,7 +140,10 @@ class _PaymentPageState extends State<PaymentPage> {
                     const SizedBox(height: 4),
                     Text(
                       widget.restaurantName,
-                      style: const TextStyle(color: Colors.white60, fontSize: 12),
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),
@@ -139,29 +151,37 @@ class _PaymentPageState extends State<PaymentPage> {
               const SizedBox(height: 24),
 
               // Bank info
-              _InfoCard(children: [
-                _BankRow(label: 'Banco', value: 'Banco Nacional de Bolivia (BNB)'),
-                const Divider(height: 16),
-                _BankRow(
-                  label: 'N° de cuenta',
-                  value: '1234567890',
-                  copyable: true,
-                ),
-                const Divider(height: 16),
-                _BankRow(label: 'A nombre de', value: 'YaYa Eats SRL'),
-                const Divider(height: 16),
-                _BankRow(
-                  label: 'Referencia',
-                  value: (widget.groupId ?? widget.orderId!).substring(0, 8).toUpperCase(),
-                  copyable: true,
-                ),
-              ]),
+              _InfoCard(
+                children: [
+                  _BankRow(
+                    label: 'Banco',
+                    value: 'Banco Nacional de Bolivia (BNB)',
+                  ),
+                  const Divider(height: 16),
+                  _BankRow(
+                    label: 'N° de cuenta',
+                    value: '1234567890',
+                    copyable: true,
+                  ),
+                  const Divider(height: 16),
+                  _BankRow(label: 'A nombre de', value: 'YaYa Eats SRL'),
+                  const Divider(height: 16),
+                  _BankRow(
+                    label: 'Referencia',
+                    value: reference,
+                    displayValue: referencePreview,
+                    copyable: true,
+                  ),
+                ],
+              ),
               const SizedBox(height: 20),
 
               // QR
               Text(
                 'Escanea el QR con tu app bancaria',
-                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 12),
               Container(
@@ -190,10 +210,19 @@ class _PaymentPageState extends State<PaymentPage> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.qr_code, size: 80, color: Colors.grey.shade400),
+                          Icon(
+                            Icons.qr_code,
+                            size: 80,
+                            color: Colors.grey.shade400,
+                          ),
                           const SizedBox(height: 8),
-                          Text('QR no disponible',
-                              style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                          Text(
+                            'QR no disponible',
+                            style: TextStyle(
+                              color: Colors.grey.shade500,
+                              fontSize: 12,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -223,18 +252,24 @@ class _PaymentPageState extends State<PaymentPage> {
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   child: _verifying
                       ? const SizedBox(
                           height: 20,
                           width: 20,
                           child: CircularProgressIndicator(
-                              color: Colors.white, strokeWidth: 2),
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
                         )
                       : const Text(
                           'Ya pagué — Verificar',
-                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
                         ),
                 ),
               ),
@@ -242,7 +277,9 @@ class _PaymentPageState extends State<PaymentPage> {
               Text(
                 'Una vez que realices la transferencia, pulsa el botón para confirmar.',
                 textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -280,8 +317,14 @@ class _InfoCard extends StatelessWidget {
 class _BankRow extends StatelessWidget {
   final String label;
   final String value;
+  final String? displayValue;
   final bool copyable;
-  const _BankRow({required this.label, required this.value, this.copyable = false});
+  const _BankRow({
+    required this.label,
+    required this.value,
+    this.displayValue,
+    this.copyable = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -289,10 +332,31 @@ class _BankRow extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13)),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontSize: 13,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
         Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 180),
+              child: Text(
+                displayValue ?? value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
             if (copyable) ...[
               const SizedBox(width: 4),
               GestureDetector(
@@ -305,7 +369,11 @@ class _BankRow extends StatelessWidget {
                     ),
                   );
                 },
-                child: Icon(Icons.copy_outlined, size: 14, color: theme.colorScheme.primary),
+                child: Icon(
+                  Icons.copy_outlined,
+                  size: 14,
+                  color: theme.colorScheme.primary,
+                ),
               ),
             ],
           ],
