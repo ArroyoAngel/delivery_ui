@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/rider_service.dart';
 import '../../../services/notification_api_service.dart';
+import '../../../services/location_tracking_service.dart';
 import '../notifications_sheet.dart';
 import 'rider_map_page.dart';
 
@@ -14,17 +16,51 @@ class AvailableGroupsPage extends StatefulWidget {
 class _AvailableGroupsPageState extends State<AvailableGroupsPage> {
   final _service = RiderService();
   final _notifService = NotificationApiService();
+  final _tracking = LocationTrackingService();
   List<RiderGroup> _groups = [];
   bool _loading = true;
   String? _error;
   String? _accepting;
   int _unreadCount = 0;
+  bool _online = false;
+  bool _togglingOnline = false;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _loadOnlineState();
     _loadUnreadCount();
+  }
+
+  Future<void> _loadOnlineState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedOnline = prefs.getBool('rider_online') ?? false;
+    // Sync with actual tracking state
+    final actuallyRunning = _tracking.isRunning;
+    final online = savedOnline || actuallyRunning;
+    if (mounted) setState(() => _online = online);
+    if (online) _load();
+  }
+
+  Future<void> _toggleOnline() async {
+    if (_togglingOnline) return;
+    setState(() => _togglingOnline = true);
+    try {
+      final newOnline = !_online;
+      if (newOnline) {
+        await _tracking.start();
+        await _load();
+      } else {
+        await _tracking.stop();
+        setState(() => _groups = []);
+      }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('rider_online', newOnline);
+      if (mounted) setState(() => _online = newOnline);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _togglingOnline = false);
+    }
   }
 
   Future<void> _loadUnreadCount() async {
@@ -50,9 +86,9 @@ class _AvailableGroupsPageState extends State<AvailableGroupsPage> {
     setState(() { _loading = true; _error = null; });
     try {
       final groups = await _service.getAvailableGroups();
-      setState(() { _groups = groups; _loading = false; });
+      if (mounted) setState(() { _groups = groups; _loading = false; });
     } catch (e) {
-      setState(() { _error = e.toString(); _loading = false; });
+      if (mounted) setState(() { _error = e.toString(); _loading = false; });
     }
   }
 
@@ -95,111 +131,172 @@ class _AvailableGroupsPageState extends State<AvailableGroupsPage> {
             Container(
               color: Colors.white,
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-              child: Row(
+              child: Column(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(Icons.delivery_dining, color: theme.colorScheme.primary, size: 24),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  Row(
                     children: [
-                      Text('Pedidos disponibles', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-                      Text('Aceptá un grupo para empezar', style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey)),
-                    ],
-                  ),
-                  const Spacer(),
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.notifications_outlined),
-                        onPressed: _openNotifications,
-                        tooltip: 'Notificaciones',
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.delivery_dining, color: theme.colorScheme.primary, size: 24),
                       ),
-                      if (_unreadCount > 0)
-                        Positioned(
-                          top: 6,
-                          right: 6,
-                          child: Container(
-                            padding: const EdgeInsets.all(3),
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
-                            constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                            child: Text(
-                              _unreadCount > 99 ? '99+' : '$_unreadCount',
-                              style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
-                              textAlign: TextAlign.center,
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Pedidos disponibles', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                          Text(
+                            _online ? 'Estás activo · compartiendo ubicación' : 'Estás offline',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: _online ? Colors.green.shade600 : Colors.grey,
                             ),
                           ),
-                        ),
+                        ],
+                      ),
+                      const Spacer(),
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.notifications_outlined),
+                            onPressed: _openNotifications,
+                            tooltip: 'Notificaciones',
+                          ),
+                          if (_unreadCount > 0)
+                            Positioned(
+                              top: 6,
+                              right: 6,
+                              child: Container(
+                                padding: const EdgeInsets.all(3),
+                                decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                                child: Text(
+                                  _unreadCount > 99 ? '99+' : '$_unreadCount',
+                                  style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ],
+                  ),
+                  const SizedBox(height: 14),
+                  // Online/offline toggle
+                  GestureDetector(
+                    onTap: _toggleOnline,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: _online ? Colors.green.shade50 : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _online ? Colors.green.shade300 : Colors.grey.shade300,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (_togglingOnline)
+                            const SizedBox(
+                              height: 18, width: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          else
+                            Icon(
+                              _online ? Icons.wifi_tethering : Icons.wifi_tethering_off,
+                              color: _online ? Colors.green.shade700 : Colors.grey.shade600,
+                              size: 20,
+                            ),
+                          const SizedBox(width: 10),
+                          Text(
+                            _online ? 'En línea — Toca para desconectarte' : 'Offline — Toca para activarte',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                              color: _online ? Colors.green.shade700 : Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
 
             Expanded(
-              child: RefreshIndicator(
-                onRefresh: _load,
-                child: _loading
-                    ? const Center(child: CircularProgressIndicator())
-                    : CustomScrollView(
-                        slivers: [
-                          if (_error != null)
-                            SliverFillRemaining(
-                              child: Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                                    const SizedBox(height: 8),
-                                    Text(_error!, textAlign: TextAlign.center),
-                                    const SizedBox(height: 16),
-                                    ElevatedButton(onPressed: _load, child: const Text('Reintentar')),
-                                  ],
-                                ),
-                              ),
-                            )
-                          else if (_groups.isEmpty)
-                            SliverFillRemaining(
-                              child: Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[300]),
-                                    const SizedBox(height: 12),
-                                    Text('No hay grupos disponibles', style: TextStyle(color: Colors.grey[500], fontSize: 16)),
-                                    const SizedBox(height: 8),
-                                    Text('Los pedidos se agrupan automáticamente', style: TextStyle(color: Colors.grey[400], fontSize: 13)),
-                                  ],
-                                ),
-                              ),
-                            )
-                          else
-                            SliverPadding(
-                              padding: const EdgeInsets.all(16),
-                              sliver: SliverList(
-                                delegate: SliverChildBuilderDelegate(
-                                  (_, i) => _GroupCard(
-                                    group: _groups[i],
-                                    accepting: _accepting == _groups[i].id,
-                                    onAccept: () => _accept(_groups[i].id),
-                                  ),
-                                  childCount: _groups.length,
-                                ),
-                              ),
-                            ),
+              child: !_online
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.wifi_tethering_off, size: 64, color: Colors.grey[300]),
+                          const SizedBox(height: 12),
+                          Text('Estás offline', style: TextStyle(color: Colors.grey[500], fontSize: 18, fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 6),
+                          Text('Actívate para ver y aceptar pedidos', style: TextStyle(color: Colors.grey[400], fontSize: 14)),
                         ],
                       ),
-              ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: _loading
+                          ? const Center(child: CircularProgressIndicator())
+                          : CustomScrollView(
+                              slivers: [
+                                if (_error != null)
+                                  SliverFillRemaining(
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                                          const SizedBox(height: 8),
+                                          Text(_error!, textAlign: TextAlign.center),
+                                          const SizedBox(height: 16),
+                                          ElevatedButton(onPressed: _load, child: const Text('Reintentar')),
+                                        ],
+                                      ),
+                                    ),
+                                  )
+                                else if (_groups.isEmpty)
+                                  SliverFillRemaining(
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[300]),
+                                          const SizedBox(height: 12),
+                                          Text('No hay grupos disponibles', style: TextStyle(color: Colors.grey[500], fontSize: 16)),
+                                          const SizedBox(height: 8),
+                                          Text('Los pedidos se agrupan automáticamente', style: TextStyle(color: Colors.grey[400], fontSize: 13)),
+                                        ],
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  SliverPadding(
+                                    padding: const EdgeInsets.all(16),
+                                    sliver: SliverList(
+                                      delegate: SliverChildBuilderDelegate(
+                                        (_, i) => _GroupCard(
+                                          group: _groups[i],
+                                          accepting: _accepting == _groups[i].id,
+                                          onAccept: () => _accept(_groups[i].id),
+                                        ),
+                                        childCount: _groups.length,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                    ),
             ),
           ],
         ),
@@ -231,7 +328,6 @@ class _GroupCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Cabecera del grupo
             Row(
               children: [
                 Container(
@@ -246,15 +342,10 @@ class _GroupCard extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                Text(
-                  _timeAgo(group.createdAt),
-                  style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                ),
+                Text(_timeAgo(group.createdAt), style: TextStyle(color: Colors.grey[500], fontSize: 12)),
               ],
             ),
             const SizedBox(height: 12),
-
-            // Restaurantes (puntos de recogida)
             Text('Recoger en:', style: TextStyle(fontSize: 12, color: Colors.grey[600], fontWeight: FontWeight.w500)),
             const SizedBox(height: 6),
             ...group.orders.map((o) => Padding(
@@ -270,24 +361,19 @@ class _GroupCard extends StatelessWidget {
                       children: [
                         Row(
                           children: [
-                            Expanded(
-                              child: Text(o.restaurantName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                            ),
+                            Expanded(child: Text(o.shopName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
                             const SizedBox(width: 6),
                             _PrepBadge(status: o.status),
                           ],
                         ),
-                        Text(o.restaurantAddress, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                        Text(o.shopAddress, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
                       ],
                     ),
                   ),
                 ],
               ),
             )),
-
             const Divider(height: 20),
-
-            // Entregas (destinos)
             Text('Entregar a:', style: TextStyle(fontSize: 12, color: Colors.grey[600], fontWeight: FontWeight.w500)),
             const SizedBox(height: 6),
             ...group.orders.map((o) => Padding(
@@ -296,30 +382,17 @@ class _GroupCard extends StatelessWidget {
                 children: [
                   Icon(Icons.location_on_outlined, size: 16, color: Colors.orange[700]),
                   const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      o.clientAddress ?? 'Dirección no especificada',
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ),
-                  Text(
-                    'Bs ${o.total.toStringAsFixed(2)}',
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                  ),
+                  Expanded(child: Text(o.clientAddress ?? 'Dirección no especificada', style: const TextStyle(fontSize: 13))),
+                  Text('Bs ${o.total.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                 ],
               ),
             )),
-
             const SizedBox(height: 16),
-
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => RiderMapPage(group: group)),
-                    ),
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RiderMapPage(group: group))),
                     icon: const Icon(Icons.map_outlined, size: 18),
                     label: const Text('Ver ruta'),
                     style: OutlinedButton.styleFrom(

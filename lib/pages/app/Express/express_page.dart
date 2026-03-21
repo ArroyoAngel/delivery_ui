@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import '../../../services/restaurant_service.dart';
+import '../../../services/shop_service.dart';
 import '../../../services/order_service.dart';
 import '../../../services/cart_service.dart';
-import '../Home/restaurant_page.dart';
+import '../Home/shop_page.dart';
 
 class _ProductItem {
   final MenuItem item;
-  final Restaurant restaurant;
-  _ProductItem({required this.item, required this.restaurant});
+  final Shop shop;
+  _ProductItem({required this.item, required this.shop});
 }
 
 class ExpressPage extends StatefulWidget {
@@ -18,7 +18,7 @@ class ExpressPage extends StatefulWidget {
 }
 
 class _ExpressPageState extends State<ExpressPage> {
-  final _restaurantService = RestaurantService();
+  final _shopService = ShopService();
   final _cart = CartService();
   final _searchController = TextEditingController();
 
@@ -43,14 +43,14 @@ class _ExpressPageState extends State<ExpressPage> {
   void _onCartChanged() => setState(() {});
 
   Future<List<_ProductItem>> _loadProducts() async {
-    final restaurants = await _restaurantService.getRestaurants();
+    final shops = await _shopService.getShops();
     final detailed = await Future.wait(
-      restaurants.map((r) => _restaurantService.getRestaurant(r.id)),
+      shops.map((r) => _shopService.getShop(r.id)),
     );
     final items = <_ProductItem>[];
     for (final r in detailed) {
       for (final item in r.menu) {
-        items.add(_ProductItem(item: item, restaurant: r));
+        items.add(_ProductItem(item: item, shop: r));
       }
     }
     return items;
@@ -63,7 +63,7 @@ class _ExpressPageState extends State<ExpressPage> {
       final matchSearch = _searchQuery.isEmpty ||
           p.item.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           (p.item.description ?? '').toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          p.restaurant.name.toLowerCase().contains(_searchQuery.toLowerCase());
+          p.shop.name.toLowerCase().contains(_searchQuery.toLowerCase());
       return matchCat && matchSearch;
     }).toList();
   }
@@ -76,8 +76,8 @@ class _ExpressPageState extends State<ExpressPage> {
   void _addToCart(_ProductItem p) {
     _cart.addItem(
       OrderItem(menuItemId: p.item.id, name: p.item.name, price: p.item.price),
-      p.restaurant.id,
-      p.restaurant.name,
+      p.shop.id,
+      p.shop.name,
     );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -220,8 +220,8 @@ class _ExpressPageState extends State<ExpressPage> {
                       ),
                       const SizedBox(height: 8),
 
-                      // Multi-restaurant notice
-                      if (_cart.isMultiRestaurant)
+                      // Multi-shop notice
+                      if (_cart.isMultiShop)
                         Container(
                           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -237,7 +237,7 @@ class _ExpressPageState extends State<ExpressPage> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  'Tienes productos de ${_cart.restaurantIds.length} restaurantes — se procesará como pedido Express',
+                                  'Tienes productos de ${_cart.shopIds.length} negocios — se procesará como pedido Express',
                                   style: TextStyle(
                                       color: Colors.orange.shade800,
                                       fontSize: 12),
@@ -273,11 +273,11 @@ class _ExpressPageState extends State<ExpressPage> {
                                   onAdd: () => _addToCart(filtered[i]),
                                   onRemove: () =>
                                       _removeFromCart(filtered[i].item.id),
-                                  onRestaurantTap: () => Navigator.push(
+                                  onShopTap: () => Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (_) => RestaurantPage(
-                                          restaurantId: filtered[i].restaurant.id),
+                                      builder: (_) => ShopPage(
+                                          shopId: filtered[i].shop.id),
                                     ),
                                   ),
                                 ),
@@ -300,21 +300,21 @@ class _ProductCard extends StatelessWidget {
   final int quantity;
   final VoidCallback onAdd;
   final VoidCallback onRemove;
-  final VoidCallback onRestaurantTap;
+  final VoidCallback onShopTap;
 
   const _ProductCard({
     required this.product,
     required this.quantity,
     required this.onAdd,
     required this.onRemove,
-    required this.onRestaurantTap,
+    required this.onShopTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final item = product.item;
-    final restaurant = product.restaurant;
+    final shop = product.shop;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -370,14 +370,14 @@ class _ProductCard extends StatelessWidget {
                 ],
                 const SizedBox(height: 4),
                 GestureDetector(
-                  onTap: onRestaurantTap,
+                  onTap: onShopTap,
                   child: Row(
                     children: [
                       Icon(Icons.storefront_outlined,
                           size: 12, color: theme.colorScheme.primary),
                       const SizedBox(width: 3),
                       Text(
-                        restaurant.name,
+                        shop.name,
                         style: TextStyle(
                           fontSize: 11,
                           color: theme.colorScheme.primary,

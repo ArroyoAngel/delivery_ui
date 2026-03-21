@@ -119,7 +119,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  order.restaurantName ?? 'Restaurante',
+                  order.shopName ?? 'Restaurante',
                   style: TextStyle(color: Colors.grey.shade700),
                 ),
               ],

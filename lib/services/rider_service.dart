@@ -2,10 +2,10 @@ import 'api_client.dart';
 
 class RiderOrderStop {
   final String orderId;
-  final String restaurantName;
-  final String restaurantAddress;
-  final double? restaurantLat;
-  final double? restaurantLng;
+  final String shopName;
+  final String shopAddress;
+  final double? shopLat;
+  final double? shopLng;
   final String? clientAddress;
   final double? clientLat;
   final double? clientLng;
@@ -15,10 +15,10 @@ class RiderOrderStop {
 
   RiderOrderStop({
     required this.orderId,
-    required this.restaurantName,
-    required this.restaurantAddress,
-    this.restaurantLat,
-    this.restaurantLng,
+    required this.shopName,
+    required this.shopAddress,
+    this.shopLat,
+    this.shopLng,
     this.clientAddress,
     this.clientLat,
     this.clientLng,
@@ -29,10 +29,10 @@ class RiderOrderStop {
 
   factory RiderOrderStop.fromJson(Map<String, dynamic> j) => RiderOrderStop(
         orderId: j['id'] as String,
-        restaurantName: j['restaurant_name'] as String? ?? '',
-        restaurantAddress: j['restaurant_address'] as String? ?? '',
-        restaurantLat: double.tryParse((j['restaurant_lat'] ?? '').toString()),
-        restaurantLng: double.tryParse((j['restaurant_lng'] ?? '').toString()),
+        shopName: j['shop_name'] as String? ?? j['restaurant_name'] as String? ?? '',
+        shopAddress: j['shop_address'] as String? ?? j['restaurant_address'] as String? ?? '',
+        shopLat: double.tryParse((j['shop_lat'] ?? j['restaurant_lat'] ?? '').toString()),
+        shopLng: double.tryParse((j['shop_lng'] ?? j['restaurant_lng'] ?? '').toString()),
         clientAddress: j['delivery_address'] as String?,
         clientLat: double.tryParse((j['delivery_lat'] ?? '').toString()),
         clientLng: double.tryParse((j['delivery_lng'] ?? '').toString()),
@@ -74,7 +74,7 @@ class RiderGroup {
 
   int get orderCount => orders.length;
 
-  Set<String> get restaurantNames => orders.map((o) => o.restaurantName).toSet();
+  Set<String> get shopNames => orders.map((o) => o.shopName).toSet();
 }
 
 class RiderService {

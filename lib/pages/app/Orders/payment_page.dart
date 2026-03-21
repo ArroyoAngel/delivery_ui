@@ -8,10 +8,10 @@ class PaymentPage extends StatefulWidget {
   /// Para órdenes simples. Mutuamente excluyente con [groupId].
   final String? orderId;
 
-  /// Para checkout express multi-restaurante.
+  /// Para checkout express multi-shop.
   final String? groupId;
   final double amount;
-  final String restaurantName;
+  final String shopName;
   final String? paymentReference;
 
   const PaymentPage({
@@ -19,7 +19,7 @@ class PaymentPage extends StatefulWidget {
     this.orderId,
     this.groupId,
     required this.amount,
-    required this.restaurantName,
+    required this.shopName,
     this.paymentReference,
   }) : assert(orderId != null || groupId != null);
 
@@ -139,7 +139,7 @@ class _PaymentPageState extends State<PaymentPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      widget.restaurantName,
+                      widget.shopName,
                       style: const TextStyle(
                         color: Colors.white60,
                         fontSize: 12,

@@ -1,28 +1,28 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import '../../../services/restaurant_service.dart';
+import '../../../services/shop_service.dart';
 import '../../../services/order_service.dart';
 import '../../../services/cart_service.dart';
 import '../Cart/cart_sheet.dart';
 
-class RestaurantPage extends StatefulWidget {
-  final String restaurantId;
-  const RestaurantPage({super.key, required this.restaurantId});
+class ShopPage extends StatefulWidget {
+  final String shopId;
+  const ShopPage({super.key, required this.shopId});
 
   @override
-  State<RestaurantPage> createState() => _RestaurantPageState();
+  State<ShopPage> createState() => _ShopPageState();
 }
 
-class _RestaurantPageState extends State<RestaurantPage> {
-  final _restaurantService = RestaurantService();
+class _ShopPageState extends State<ShopPage> {
+  final _shopService = ShopService();
   final _cart = CartService();
 
-  late Future<Restaurant> _future;
+  late Future<Shop> _future;
 
   @override
   void initState() {
     super.initState();
-    _future = _restaurantService.getRestaurant(widget.restaurantId);
+    _future = _shopService.getShop(widget.shopId);
     _cart.addListener(_onCartChanged);
   }
 
@@ -34,11 +34,11 @@ class _RestaurantPageState extends State<RestaurantPage> {
 
   void _onCartChanged() => setState(() {});
 
-  void _addItem(MenuItem item, String restaurantName) {
+  void _addItem(MenuItem item, String shopName) {
     _cart.addItem(
       OrderItem(menuItemId: item.id, name: item.name, price: item.price),
-      widget.restaurantId,
-      restaurantName,
+      widget.shopId,
+      shopName,
     );
   }
 
@@ -63,7 +63,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
     return Scaffold(
       body: Stack(
         children: [
-          FutureBuilder<Restaurant>(
+          FutureBuilder<Shop>(
             future: _future,
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
@@ -136,9 +136,9 @@ class _RestaurantPageState extends State<RestaurantPage> {
     );
   }
 
-  Widget _buildContent(Restaurant restaurant) {
+  Widget _buildContent(Shop shop) {
     final Map<String, List<MenuItem>> grouped = {};
-    for (final item in restaurant.menu) {
+    for (final item in shop.menu) {
       final cat = item.categoryName ?? 'General';
       grouped.putIfAbsent(cat, () => []).add(item);
     }
@@ -150,19 +150,19 @@ class _RestaurantPageState extends State<RestaurantPage> {
           pinned: true,
           flexibleSpace: FlexibleSpaceBar(
             title: Text(
-              restaurant.name,
+              shop.name,
               style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
             ),
-            background: restaurant.imageUrl != null
+            background: shop.imageUrl != null
                 ? CachedNetworkImage(
-                    imageUrl: restaurant.imageUrl!,
+                    imageUrl: shop.imageUrl!,
                     fit: BoxFit.cover,
                     errorWidget: (_, __, ___) =>
                         Container(color: Colors.grey.shade300),
                   )
                 : Container(
                     color: Colors.grey.shade300,
-                    child: const Icon(Icons.restaurant,
+                    child: Icon(_storeIcon(shop.businessType),
                         size: 64, color: Colors.white)),
           ),
         ),
@@ -173,28 +173,28 @@ class _RestaurantPageState extends State<RestaurantPage> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                if (restaurant.rating != null) ...[
+                if (shop.rating != null) ...[
                   Icon(Icons.star, size: 16, color: Colors.amber.shade600),
                   const SizedBox(width: 4),
-                  Text(restaurant.rating!.toStringAsFixed(1),
+                  Text(shop.rating!.toStringAsFixed(1),
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(width: 16),
                 ],
-                if (restaurant.deliveryMinutes != null) ...[
+                if (shop.deliveryMinutes != null) ...[
                   const Icon(Icons.timer_outlined,
                       size: 16, color: Colors.grey),
                   const SizedBox(width: 4),
-                  Text('${restaurant.deliveryMinutes} min',
+                  Text('${shop.deliveryMinutes} min',
                       style: TextStyle(color: Colors.grey.shade600)),
                   const SizedBox(width: 16),
                 ],
-                if (restaurant.deliveryFee != null)
+                if (shop.deliveryFee != null)
                   Text(
-                    restaurant.deliveryFee == 0
+                    shop.deliveryFee == 0
                         ? 'Envío gratis'
-                        : 'Envío Bs ${restaurant.deliveryFee!.toStringAsFixed(0)}',
+                        : 'Envío Bs ${shop.deliveryFee!.toStringAsFixed(0)}',
                     style: TextStyle(
-                      color: restaurant.deliveryFee == 0
+                      color: shop.deliveryFee == 0
                           ? Colors.green.shade700
                           : Colors.grey.shade600,
                       fontWeight: FontWeight.w500,
@@ -224,7 +224,7 @@ class _RestaurantPageState extends State<RestaurantPage> {
               (context, i) => _MenuItemTile(
                 item: entry.value[i],
                 quantity: _cart.quantityOf(entry.value[i].id),
-                onAdd: () => _addItem(entry.value[i], restaurant.name),
+                onAdd: () => _addItem(entry.value[i], shop.name),
                 onRemove: () => _removeItem(entry.value[i]),
               ),
               childCount: entry.value.length,
@@ -235,6 +235,14 @@ class _RestaurantPageState extends State<RestaurantPage> {
         const SliverToBoxAdapter(child: SizedBox(height: 100)),
       ],
     );
+  }
+}
+
+IconData _storeIcon(String businessType) {
+  switch (businessType) {
+    case 'supermarket': return Icons.local_grocery_store;
+    case 'minimarket':  return Icons.store;
+    default:            return Icons.restaurant;
   }
 }
 
@@ -279,7 +287,7 @@ class _MenuItemTile extends StatelessWidget {
                   width: 72,
                   height: 72,
                   color: Colors.grey.shade200,
-                  child: const Icon(Icons.fastfood, color: Colors.grey),
+                  child: Icon(Icons.inventory_2_outlined, color: Colors.grey),
                 ),
               ),
             )
@@ -291,7 +299,7 @@ class _MenuItemTile extends StatelessWidget {
                 color: Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(Icons.fastfood, color: Colors.grey.shade400),
+              child: Icon(Icons.inventory_2_outlined, color: Colors.grey.shade400),
             ),
           const SizedBox(width: 12),
           Expanded(

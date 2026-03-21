@@ -42,6 +42,9 @@ class LocationTrackingService {
   bool _running = false;
   int _intervalSeconds = 5; // captured from API on start()
 
+  /// Whether location tracking is currently active.
+  bool get isRunning => _running;
+
   /// Start tracking. Retries any offline-pending segment, reads the current
   /// interval from the API, then begins sampling GPS every [_intervalSeconds]
   /// and flushing every 5 minutes.

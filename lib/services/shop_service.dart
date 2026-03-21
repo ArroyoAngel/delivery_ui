@@ -1,16 +1,23 @@
 import 'api_client.dart';
 
-class RestaurantCategory {
+class ShopCategory {
   final String id;
   final String name;
   final String? icon;
+  final String businessType;
 
-  RestaurantCategory({required this.id, required this.name, this.icon});
+  ShopCategory({
+    required this.id,
+    required this.name,
+    this.icon,
+    this.businessType = 'restaurant',
+  });
 
-  factory RestaurantCategory.fromJson(Map<String, dynamic> j) => RestaurantCategory(
+  factory ShopCategory.fromJson(Map<String, dynamic> j) => ShopCategory(
         id: j['id'] as String,
         name: j['name'] as String,
         icon: j['icon'] as String?,
+        businessType: j['business_type'] as String? ?? j['businessType'] as String? ?? 'restaurant',
       );
 }
 
@@ -44,7 +51,7 @@ class MenuItem {
       );
 }
 
-class Restaurant {
+class Shop {
   final String id;
   final String name;
   final String? description;
@@ -54,9 +61,10 @@ class Restaurant {
   final int? deliveryMinutes;
   final double? deliveryFee;
   final bool isOpen;
+  final String businessType;
   final List<MenuItem> menu;
 
-  Restaurant({
+  Shop({
     required this.id,
     required this.name,
     this.description,
@@ -66,10 +74,11 @@ class Restaurant {
     this.deliveryMinutes,
     this.deliveryFee,
     required this.isOpen,
+    this.businessType = 'restaurant',
     this.menu = const [],
   });
 
-  factory Restaurant.fromJson(Map<String, dynamic> j) => Restaurant(
+  factory Shop.fromJson(Map<String, dynamic> j) => Shop(
         id: j['id'] as String,
         name: j['name'] as String,
         description: j['description'] as String?,
@@ -81,6 +90,7 @@ class Restaurant {
             ? null
             : double.tryParse((j['deliveryFee'] ?? j['delivery_fee']).toString()),
         isOpen: j['is_open'] as bool? ?? j['isOpen'] as bool? ?? true,
+        businessType: j['business_type'] as String? ?? j['businessType'] as String? ?? 'restaurant',
         menu: _flattenMenu(j),
       );
 
@@ -102,28 +112,34 @@ class Restaurant {
   }
 }
 
-class RestaurantService {
-  static final RestaurantService _instance = RestaurantService._internal();
-  factory RestaurantService() => _instance;
-  RestaurantService._internal();
+class ShopService {
+  static final ShopService _instance = ShopService._internal();
+  factory ShopService() => _instance;
+  ShopService._internal();
 
   final _api = ApiClient();
 
-  Future<List<Restaurant>> getRestaurants({String? search, String? categoryId}) async {
+  Future<List<Shop>> getShops({
+    String? search,
+    String? categoryId,
+    String? businessType,
+  }) async {
     final query = <String, String>{};
     if (search != null && search.isNotEmpty) query['search'] = search;
     if (categoryId != null) query['categoryId'] = categoryId;
-    final data = await _api.get('/restaurants', query: query.isEmpty ? null : query) as List;
-    return data.map((e) => Restaurant.fromJson(e as Map<String, dynamic>)).toList();
+    if (businessType != null) query['businessType'] = businessType;
+    final data = await _api.get('/shops', query: query.isEmpty ? null : query) as List;
+    return data.map((e) => Shop.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  Future<Restaurant> getRestaurant(String id) async {
-    final data = await _api.get('/restaurants/$id') as Map<String, dynamic>;
-    return Restaurant.fromJson(data);
+  Future<Shop> getShop(String id) async {
+    final data = await _api.get('/shops/$id') as Map<String, dynamic>;
+    return Shop.fromJson(data);
   }
 
-  Future<List<RestaurantCategory>> getCategories() async {
-    final data = await _api.get('/restaurants/categories') as List;
-    return data.map((e) => RestaurantCategory.fromJson(e as Map<String, dynamic>)).toList();
+  Future<List<ShopCategory>> getCategories({String? businessType}) async {
+    final query = businessType != null ? {'businessType': businessType} : null;
+    final data = await _api.get('/shops/categories', query: query) as List;
+    return data.map((e) => ShopCategory.fromJson(e as Map<String, dynamic>)).toList();
   }
 }

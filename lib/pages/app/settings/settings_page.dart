@@ -4,8 +4,14 @@ import '../../core/login_page.dart';
 import '../app_root.dart';
 import '../orders/orders_page.dart';
 import 'addresses_page.dart';
+import 'edit_profile_page.dart';
+import 'rider_bank_accounts_page.dart';
+import 'rider_earnings_page.dart';
+import 'support_ticket_page.dart';
+import '../notifications_sheet.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/location_tracking_service.dart';
+import '../../../services/rider_service.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -17,6 +23,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final _authService = AuthService();
   String _activeMode = 'client';
+  bool _switching = false;
 
   @override
   void initState() {
@@ -30,19 +37,40 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _setMode(String mode) async {
-    if (mode == 'rider' && !(_authService.currentUser?.roles.contains('rider') ?? false)) {
-      return;
+    if (mode == _activeMode || _switching) return;
+    if (mode == 'rider' && !(_authService.currentUser?.roles.contains('rider') ?? false)) return;
+
+    // Bloquear cambio a cliente si hay entrega activa
+    if (mode == 'client') {
+      setState(() => _switching = true);
+      try {
+        final activeGroup = await RiderService().getMyActiveGroup();
+        if (activeGroup != null &&
+            !['done', 'completed', 'cancelled'].contains(activeGroup.status)) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Tienes una entrega en curso. Complétala antes de cambiar de modo.'),
+                backgroundColor: Colors.red,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+          setState(() => _switching = false);
+          return;
+        }
+      } catch (_) {}
+
+      // Al salir de rider: detener tracking + resetear online
+      await LocationTrackingService().stop();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('rider_online', false);
     }
-    final tracking = LocationTrackingService();
-    if (mode == 'rider') {
-      await tracking.start();
-    } else {
-      await tracking.stop(); // flush remaining points before switching
-    }
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('active_mode', mode);
-    setState(() => _activeMode = mode);
-    // Recarga la app root para cambiar la navegación
+    setState(() { _activeMode = mode; _switching = false; });
+
     if (mounted) {
       Navigator.pushAndRemoveUntil(
         context,
@@ -72,6 +100,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
     if (confirm == true && mounted) {
+      await LocationTrackingService().stop();
       await _authService.signOut();
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
@@ -82,14 +111,15 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  void _proximamente(String title) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$title — Próximamente'),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 2),
+  void _openNotifications() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
+      builder: (_) => const NotificationsSheet(),
     );
   }
 
@@ -102,7 +132,6 @@ class _SettingsPageState extends State<SettingsPage> {
     final initials = user?.initials ?? 'U';
     final roles = user?.roles ?? [];
     final isRider = roles.contains('rider');
-    // El switcher solo aparece si el superadmin le dio ambos roles
     final hasBothRoles = isRider && roles.contains('client');
 
     return SafeArea(
@@ -144,6 +173,25 @@ class _SettingsPageState extends State<SettingsPage> {
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
+                        if (isRider)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primaryContainer,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                'Repartidor',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -169,6 +217,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             icon: Icons.shopping_bag_outlined,
                             label: 'Cliente',
                             selected: _activeMode == 'client',
+                            loading: _switching && _activeMode == 'rider',
                             onTap: () => _setMode('client'),
                           ),
                         ),
@@ -178,6 +227,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             icon: Icons.delivery_dining,
                             label: 'Delivery',
                             selected: _activeMode == 'rider',
+                            loading: false,
                             onTap: () => _setMode('rider'),
                           ),
                         ),
@@ -195,6 +245,15 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Column(
                 children: [
                   _SettingsTile(
+                    icon: Icons.person_outline,
+                    title: 'Editar perfil',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const EditProfilePage()),
+                    ),
+                  ),
+                  const Divider(height: 1, indent: 56),
+                  _SettingsTile(
                     icon: Icons.receipt_long_outlined,
                     title: 'Historial de pedidos',
                     onTap: () => Navigator.push(
@@ -208,23 +267,32 @@ class _SettingsPageState extends State<SettingsPage> {
                     title: 'Mis direcciones',
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddressesPage())),
                   ),
-                  const Divider(height: 1, indent: 56),
-                  _SettingsTile(
-                    icon: Icons.payment_outlined,
-                    title: 'Métodos de pago',
-                    onTap: () => _proximamente('Métodos de pago'),
-                  ),
+                  // Opciones solo para riders
+                  if (isRider) ...[
+                    const Divider(height: 1, indent: 56),
+                    _SettingsTile(
+                      icon: Icons.account_balance_wallet_outlined,
+                      title: 'Mis ingresos y retiros',
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RiderEarningsPage())),
+                    ),
+                    const Divider(height: 1, indent: 56),
+                    _SettingsTile(
+                      icon: Icons.account_balance_outlined,
+                      title: 'Cuentas bancarias',
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RiderBankAccountsPage())),
+                    ),
+                  ],
                   const Divider(height: 1, indent: 56),
                   _SettingsTile(
                     icon: Icons.notifications_outlined,
                     title: 'Notificaciones',
-                    onTap: () => _proximamente('Notificaciones'),
+                    onTap: _openNotifications,
                   ),
                   const Divider(height: 1, indent: 56),
                   _SettingsTile(
                     icon: Icons.help_outline,
                     title: 'Ayuda y soporte',
-                    onTap: () => _proximamente('Ayuda y soporte'),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupportTicketPage())),
                   ),
                 ],
               ),
@@ -260,15 +328,22 @@ class _ModeButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool selected;
+  final bool loading;
   final VoidCallback onTap;
 
-  const _ModeButton({required this.icon, required this.label, required this.selected, required this.onTap});
+  const _ModeButton({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.loading,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return GestureDetector(
-      onTap: onTap,
+      onTap: loading ? null : onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -276,20 +351,22 @@ class _ModeButton extends StatelessWidget {
           color: selected ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Column(
-          children: [
-            Icon(icon, color: selected ? Colors.white : theme.colorScheme.onSurfaceVariant, size: 22),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: selected ? Colors.white : theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
+        child: loading
+            ? const Center(child: SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2)))
+            : Column(
+                children: [
+                  Icon(icon, color: selected ? Colors.white : theme.colorScheme.onSurfaceVariant, size: 22),
+                  const SizedBox(height: 4),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: selected ? Colors.white : theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }

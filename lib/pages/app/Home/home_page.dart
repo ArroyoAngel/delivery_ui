@@ -1,10 +1,44 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../../services/auth_service.dart';
-import '../../../services/restaurant_service.dart';
+import '../../../services/shop_service.dart';
 import '../../../services/notification_api_service.dart';
 import '../notifications_sheet.dart';
-import 'restaurant_page.dart';
+import 'shop_page.dart';
+
+// ── Tipos de negocio disponibles ──────────────────────────────────────────────
+
+class _BusinessTypeOption {
+  final String? value; // null = Todos
+  final String label;
+  final IconData icon;
+  const _BusinessTypeOption({this.value, required this.label, required this.icon});
+}
+
+const _businessTypes = [
+  _BusinessTypeOption(value: null,           label: 'Todos',          icon: Icons.apps),
+  _BusinessTypeOption(value: 'shop',   label: 'Restaurantes',   icon: Icons.shop),
+  _BusinessTypeOption(value: 'supermarket',  label: 'Supermercados',  icon: Icons.local_grocery_store),
+  _BusinessTypeOption(value: 'minimarket',   label: 'Minimarkets',    icon: Icons.store),
+];
+
+String _sectionLabel(String? businessType) {
+  switch (businessType) {
+    case 'supermarket': return 'Supermercados';
+    case 'minimarket':  return 'Minimarkets';
+    case 'shop':  return 'Restaurantes';
+    default:            return 'Negocios';
+  }
+}
+
+String _searchHint(String? businessType) {
+  switch (businessType) {
+    case 'supermarket': return 'Buscar supermercado...';
+    case 'minimarket':  return 'Buscar minimarket...';
+    case 'shop':  return 'Buscar shope...';
+    default:            return 'Buscar negocio...';
+  }
+}
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -14,19 +48,20 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final _restaurantService = RestaurantService();
+  final _shopService = ShopService();
   final _notifService = NotificationApiService();
   final _searchController = TextEditingController();
 
-  late Future<List<Restaurant>> _restaurantsFuture;
-  late Future<List<RestaurantCategory>> _categoriesFuture;
+  late Future<List<Shop>> _shopsFuture;
+  late Future<List<ShopCategory>> _categoriesFuture;
   String? _selectedCategory;
+  String? _selectedBusinessType; // null = todos
   int _unreadCount = 0;
 
   @override
   void initState() {
     super.initState();
-    _categoriesFuture = _restaurantService.getCategories();
+    _loadCategories();
     _load();
     _loadUnreadCount();
   }
@@ -50,13 +85,29 @@ class _HomePageState extends State<HomePage> {
     ).then((_) => _loadUnreadCount());
   }
 
-  void _load() {
+  void _loadCategories() {
     setState(() {
-      _restaurantsFuture = _restaurantService.getRestaurants(
-        search: _searchController.text.trim().isEmpty ? null : _searchController.text.trim(),
-        categoryId: _selectedCategory,
+      _categoriesFuture = _shopService.getCategories(
+        businessType: _selectedBusinessType,
       );
     });
+  }
+
+  void _load() {
+    setState(() {
+      _shopsFuture = _shopService.getShops(
+        search: _searchController.text.trim().isEmpty ? null : _searchController.text.trim(),
+        categoryId: _selectedCategory,
+        businessType: _selectedBusinessType,
+      );
+    });
+  }
+
+  void _selectBusinessType(String? type) {
+    _selectedBusinessType = type;
+    _selectedCategory = null; // reset category when switching type
+    _loadCategories();
+    _load();
   }
 
   @override
@@ -138,7 +189,7 @@ class _HomePageState extends State<HomePage> {
                       controller: _searchController,
                       onSubmitted: (_) => _load(),
                       decoration: InputDecoration(
-                        hintText: 'Buscar restaurante...',
+                        hintText: _searchHint(_selectedBusinessType),
                         hintStyle: TextStyle(color: Colors.grey.shade400),
                         prefixIcon: const Icon(Icons.search, color: Colors.grey),
                         suffixIcon: _searchController.text.isNotEmpty
@@ -165,12 +216,38 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
 
-            // Categories
+            // Business type tabs
             SliverToBoxAdapter(
-              child: FutureBuilder<List<RestaurantCategory>>(
+              child: SizedBox(
+                height: 44,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  itemCount: _businessTypes.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (_, i) {
+                    final opt = _businessTypes[i];
+                    final selected = _selectedBusinessType == opt.value;
+                    return _BusinessTypeTab(
+                      label: opt.label,
+                      icon: opt.icon,
+                      selected: selected,
+                      onTap: () => _selectBusinessType(opt.value),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            const SliverToBoxAdapter(child: SizedBox(height: 12)),
+
+            // Category chips (filtered by business type)
+            SliverToBoxAdapter(
+              child: FutureBuilder<List<ShopCategory>>(
                 future: _categoriesFuture,
                 builder: (_, snap) {
                   final categories = snap.data ?? [];
+                  if (categories.isEmpty) return const SizedBox.shrink();
                   return SizedBox(
                     height: 40,
                     child: ListView.separated(
@@ -193,7 +270,7 @@ class _HomePageState extends State<HomePage> {
                         final cat = categories[i - 1];
                         final selected = _selectedCategory == cat.id;
                         return _CategoryChip(
-                          label: cat.name,
+                          label: '${cat.icon ?? ''} ${cat.name}'.trim(),
                           selected: selected,
                           onTap: () {
                             _selectedCategory = selected ? null : cat.id;
@@ -209,20 +286,21 @@ class _HomePageState extends State<HomePage> {
 
             const SliverToBoxAdapter(child: SizedBox(height: 20)),
 
-            // Restaurants
+            // Section title
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Text(
-                  'Restaurantes',
+                  _sectionLabel(_selectedBusinessType),
                   style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
-            FutureBuilder<List<Restaurant>>(
-              future: _restaurantsFuture,
+            // Store list
+            FutureBuilder<List<Shop>>(
+              future: _shopsFuture,
               builder: (context, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const SliverToBoxAdapter(
@@ -257,7 +335,7 @@ class _HomePageState extends State<HomePage> {
                       child: Padding(
                         padding: const EdgeInsets.all(40),
                         child: Text(
-                          'No hay restaurantes disponibles',
+                          'No hay negocios disponibles',
                           style: TextStyle(color: Colors.grey.shade500),
                         ),
                       ),
@@ -270,12 +348,12 @@ class _HomePageState extends State<HomePage> {
                     delegate: SliverChildBuilderDelegate(
                       (context, i) => Padding(
                         padding: const EdgeInsets.only(bottom: 16),
-                        child: _RestaurantCard(
-                          restaurant: list[i],
+                        child: _StoreCard(
+                          shop: list[i],
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => RestaurantPage(restaurantId: list[i].id),
+                              builder: (_) => ShopPage(shopId: list[i].id),
                             ),
                           ),
                         ),
@@ -294,6 +372,59 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
+
+// ── Business Type Tab ─────────────────────────────────────────────────────────
+
+class _BusinessTypeTab extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _BusinessTypeTab({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? theme.colorScheme.primary : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 15,
+              color: selected ? Colors.white : Colors.grey.shade600,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.grey.shade700,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Category Chip ─────────────────────────────────────────────────────────────
 
 class _CategoryChip extends StatelessWidget {
   final String label;
@@ -327,11 +458,21 @@ class _CategoryChip extends StatelessWidget {
   }
 }
 
-class _RestaurantCard extends StatelessWidget {
-  final Restaurant restaurant;
+// ── Store Card ────────────────────────────────────────────────────────────────
+
+IconData _placeholderIcon(String businessType) {
+  switch (businessType) {
+    case 'supermarket': return Icons.local_grocery_store;
+    case 'minimarket':  return Icons.store;
+    default:            return Icons.shop;
+  }
+}
+
+class _StoreCard extends StatelessWidget {
+  final Shop shop;
   final VoidCallback onTap;
 
-  const _RestaurantCard({required this.restaurant, required this.onTap});
+  const _StoreCard({required this.shop, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -356,9 +497,9 @@ class _RestaurantCard extends StatelessWidget {
             // Image
             ClipRRect(
               borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-              child: restaurant.imageUrl != null
+              child: shop.imageUrl != null
                   ? CachedNetworkImage(
-                      imageUrl: restaurant.imageUrl!,
+                      imageUrl: shop.imageUrl!,
                       height: 160,
                       width: double.infinity,
                       fit: BoxFit.cover,
@@ -367,9 +508,15 @@ class _RestaurantCard extends StatelessWidget {
                         color: Colors.grey.shade200,
                         child: const Center(child: CircularProgressIndicator()),
                       ),
-                      errorWidget: (_, __, ___) => _PlaceholderImage(height: 160),
+                      errorWidget: (_, __, ___) => _PlaceholderImage(
+                        height: 160,
+                        icon: _placeholderIcon(shop.businessType),
+                      ),
                     )
-                  : _PlaceholderImage(height: 160),
+                  : _PlaceholderImage(
+                      height: 160,
+                      icon: _placeholderIcon(shop.businessType),
+                    ),
             ),
             Padding(
               padding: const EdgeInsets.all(12),
@@ -380,11 +527,11 @@ class _RestaurantCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          restaurant.name,
+                          shop.name,
                           style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                         ),
                       ),
-                      if (!restaurant.isOpen)
+                      if (!shop.isOpen)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
@@ -398,10 +545,10 @@ class _RestaurantCard extends StatelessWidget {
                         ),
                     ],
                   ),
-                  if (restaurant.description != null) ...[
+                  if (shop.description != null) ...[
                     const SizedBox(height: 4),
                     Text(
-                      restaurant.description!,
+                      shop.description!,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -412,32 +559,32 @@ class _RestaurantCard extends StatelessWidget {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      if (restaurant.rating != null) ...[
+                      if (shop.rating != null) ...[
                         Icon(Icons.star, size: 14, color: Colors.amber.shade600),
                         const SizedBox(width: 3),
                         Text(
-                          restaurant.rating!.toStringAsFixed(1),
+                          shop.rating!.toStringAsFixed(1),
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                         ),
                         const SizedBox(width: 12),
                       ],
-                      if (restaurant.deliveryMinutes != null) ...[
+                      if (shop.deliveryMinutes != null) ...[
                         Icon(Icons.timer_outlined, size: 14, color: Colors.grey.shade500),
                         const SizedBox(width: 3),
                         Text(
-                          '${restaurant.deliveryMinutes} min',
+                          '${shop.deliveryMinutes} min',
                           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                         ),
                         const SizedBox(width: 12),
                       ],
-                      if (restaurant.deliveryFee != null)
+                      if (shop.deliveryFee != null)
                         Text(
-                          restaurant.deliveryFee == 0
+                          shop.deliveryFee == 0
                               ? 'Envío gratis'
-                              : 'Envío Bs ${restaurant.deliveryFee!.toStringAsFixed(0)}',
+                              : 'Envío Bs ${shop.deliveryFee!.toStringAsFixed(0)}',
                           style: TextStyle(
                             fontSize: 12,
-                            color: restaurant.deliveryFee == 0
+                            color: shop.deliveryFee == 0
                                 ? Colors.green.shade700
                                 : Colors.grey.shade600,
                           ),
@@ -456,7 +603,8 @@ class _RestaurantCard extends StatelessWidget {
 
 class _PlaceholderImage extends StatelessWidget {
   final double height;
-  const _PlaceholderImage({required this.height});
+  final IconData icon;
+  const _PlaceholderImage({required this.height, this.icon = Icons.store});
 
   @override
   Widget build(BuildContext context) {
@@ -464,7 +612,7 @@ class _PlaceholderImage extends StatelessWidget {
       height: height,
       width: double.infinity,
       color: Colors.grey.shade200,
-      child: Icon(Icons.restaurant, size: 48, color: Colors.grey.shade400),
+      child: Icon(icon, size: 48, color: Colors.grey.shade400),
     );
   }
 }

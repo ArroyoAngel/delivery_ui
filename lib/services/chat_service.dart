@@ -1,11 +1,8 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:http/http.dart' as http;
 import 'api_client.dart';
 
 class ChatMessage {
-  final String role; // 'user' | 'assistant'
+  final String role; // 'user' | 'assistant' | 'system'
   final String content;
   final DateTime timestamp;
 
@@ -16,70 +13,64 @@ class ChatMessage {
   }) : timestamp = timestamp ?? DateTime.now();
 }
 
+/// Acción estructurada que la IA puede solicitar ejecutar.
+class AiAction {
+  final String type; // 'CREATE_ORDER' | 'CHECK_PAYMENT'
+  final Map<String, dynamic> data;
+
+  AiAction({required this.type, required this.data});
+}
+
+/// Resultado de enviar un mensaje: texto visible + acción opcional.
+class ChatResponse {
+  final String text;
+  final AiAction? action;
+
+  ChatResponse({required this.text, this.action});
+}
+
 class ChatService {
   static final ChatService _instance = ChatService._internal();
   factory ChatService() => _instance;
   ChatService._internal();
 
-  static String get _baseUrl {
-    final env = dotenv.env['OWUI_BASE_URL'] ?? 'http://localhost:3000';
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return env;
-    try {
-      final uri = Uri.parse(env);
-      if (uri.host == 'localhost' || uri.host == '127.0.0.1') {
-        return uri.replace(host: '10.0.2.2').toString();
-      }
-    } catch (_) {}
-    return env;
+  final _api = ApiClient();
+
+  static String get debugUrl => '${ApiClient.baseUrl}/ai/chat';
+
+  Future<ChatResponse> sendMessage(List<ChatMessage> history) async {
+    final messages = history
+        .map((m) => {'role': m.role, 'content': m.content})
+        .toList();
+
+    final data = await _api.post(
+      '/ai/chat',
+      {'messages': messages, 'channel': 'app'},
+    ) as Map<String, dynamic>;
+
+    final choices = data['choices'] as List<dynamic>;
+    final message = choices.first['message'] as Map<String, dynamic>;
+    final raw = message['content'] as String? ?? '';
+
+    return _parseResponse(raw);
   }
 
-  static String get _apiKey => dotenv.env['OWUI_API_KEY'] ?? '';
-  static String get _model => dotenv.env['OWUI_MODEL'] ?? 'llama3.1:8b';
-  static String? get _systemPrompt => dotenv.env['OWUI_SYSTEM_PROMPT'];
+  /// Separa el texto visible de la línea __ACTION__ (si existe).
+  ChatResponse _parseResponse(String raw) {
+    const marker = '__ACTION__:';
+    final idx = raw.lastIndexOf(marker);
+    if (idx == -1) return ChatResponse(text: raw.trim());
 
-  static String get debugUrl => '$_baseUrl/api/chat/completions';
+    final text = raw.substring(0, idx).trim();
+    final jsonStr = raw.substring(idx + marker.length).trim();
 
-  Future<String> sendMessage(List<ChatMessage> history) async {
-    final token = await ApiClient().getToken();
-
-    final messages = <Map<String, String>>[];
-
-    // Always prepend system prompt if configured
-    final prompt = _systemPrompt;
-    if (prompt != null && prompt.isNotEmpty) {
-      messages.add({'role': 'system', 'content': prompt});
+    try {
+      final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+      final type = map['type'] as String? ?? '';
+      return ChatResponse(text: text, action: AiAction(type: type, data: map));
+    } catch (_) {
+      // JSON malformado — mostrar el mensaje completo sin acción
+      return ChatResponse(text: raw.trim());
     }
-
-    messages.addAll(
-      history.map((m) => {'role': m.role, 'content': m.content}),
-    );
-
-    final headers = {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ${_apiKey.isNotEmpty ? _apiKey : token ?? ''}',
-    };
-
-    final body = jsonEncode({
-      'model': _model,
-      'messages': messages,
-      'stream': false,
-    });
-
-    final res = await http
-        .post(
-          Uri.parse('$_baseUrl/api/chat/completions'),
-          headers: headers,
-          body: body,
-        )
-        .timeout(const Duration(seconds: 60));
-
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      final json = jsonDecode(res.body) as Map<String, dynamic>;
-      final choices = json['choices'] as List<dynamic>;
-      final message = choices.first['message'] as Map<String, dynamic>;
-      return message['content'] as String? ?? '';
-    }
-
-    throw Exception('Error ${res.statusCode}: ${res.body}');
   }
 }

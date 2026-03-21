@@ -1,4 +1,5 @@
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'api_client.dart';
 import 'notification_service.dart';
 
@@ -7,6 +8,7 @@ class AuthUser {
   final String email;
   final String firstName;
   final String lastName;
+  final String phone;
   final List<String> roles;
 
   AuthUser({
@@ -14,6 +16,7 @@ class AuthUser {
     required this.email,
     required this.firstName,
     required this.lastName,
+    required this.phone,
     required this.roles,
   });
 
@@ -22,8 +25,11 @@ class AuthUser {
     email: json['email'] as String,
     firstName: json['firstName'] as String,
     lastName: json['lastName'] as String,
+    phone: json['phone'] as String? ?? '',
     roles: List<String>.from(json['roles'] as List? ?? []),
   );
+
+  bool get hasPhone => phone.isNotEmpty;
 
   String get fullName => '$firstName $lastName';
   String get initials =>
@@ -56,20 +62,26 @@ class AuthService {
     return _currentUser!;
   }
 
+  /// Paso 1: envía OTP al email. Llama antes de mostrar el campo de código.
+  Future<void> sendRegisterOtp(String email) async {
+    await _api.post('/auth/register/send-otp', {'email': email}, auth: false);
+  }
+
+  /// Paso 2: verifica el código y crea la cuenta.
   Future<AuthUser> register({
     required String email,
+    required String code,
     required String password,
     required String firstName,
     required String lastName,
   }) async {
-    final data =
-        await _api.post('/auth/register', {
-              'email': email,
-              'password': password,
-              'firstName': firstName,
-              'lastName': lastName,
-            }, auth: false)
-            as Map<String, dynamic>;
+    final data = await _api.post('/auth/register', {
+      'email': email,
+      'code': code,
+      'password': password,
+      'firstName': firstName,
+      'lastName': lastName,
+    }, auth: false) as Map<String, dynamic>;
     await _api.saveToken(data['accessToken'] as String);
     final me = await _api.get('/auth/me') as Map<String, dynamic>;
     _currentUser = AuthUser.fromJson(me);
@@ -96,8 +108,9 @@ class AuthService {
     if (account == null) throw Exception('Login con Google cancelado');
     final auth = await account.authentication;
     final idToken = auth.idToken;
-    if (idToken == null)
+    if (idToken == null) {
       throw Exception('No se pudo obtener el token de Google');
+    }
     final data =
         await _api.post('/auth/google', {'idToken': idToken}, auth: false)
             as Map<String, dynamic>;
@@ -106,6 +119,75 @@ class AuthService {
     _currentUser = AuthUser.fromJson(me);
     NotificationService().registerAfterLogin().catchError((_) {});
     return _currentUser!;
+  }
+
+  /// Envía un SMS al [phoneNumber] (formato E.164: +591XXXXXXXX).
+  /// Llama a [onCodeSent] con el verificationId cuando el SMS llega.
+  /// Llama a [onError] si algo falla.
+  Future<void> sendPhoneOtp({
+    required String phoneNumber,
+    required void Function(String verificationId) onCodeSent,
+    required void Function(String error) onError,
+    void Function(PhoneAuthCredential)? onAutoVerify,
+  }) async {
+    await FirebaseAuth.instance.verifyPhoneNumber(
+      phoneNumber: phoneNumber,
+      verificationCompleted: (credential) => onAutoVerify?.call(credential),
+      verificationFailed: (e) => onError(e.message ?? 'Error de verificación'),
+      codeSent: (verificationId, _) => onCodeSent(verificationId),
+      codeAutoRetrievalTimeout: (_) {},
+      timeout: const Duration(seconds: 60),
+    );
+  }
+
+  /// Completa el sign-in con el código SMS recibido.
+  Future<AuthUser> phoneSignIn({
+    required String verificationId,
+    required String smsCode,
+  }) async {
+    final credential = PhoneAuthProvider.credential(
+      verificationId: verificationId,
+      smsCode: smsCode,
+    );
+    final result = await FirebaseAuth.instance.signInWithCredential(credential);
+    final idToken = await result.user!.getIdToken();
+    final data = await _api.post('/auth/firebase', {'idToken': idToken!}) as Map<String, dynamic>;
+    await _api.saveToken(data['accessToken'] as String);
+    final me = await _api.get('/auth/me') as Map<String, dynamic>;
+    _currentUser = AuthUser.fromJson(me);
+    NotificationService().registerAfterLogin().catchError((_) {});
+    return _currentUser!;
+  }
+
+  /// Verifica un número de teléfono para el usuario ya autenticado (editar perfil).
+  /// Llama a sendPhoneOtp primero, luego este método con el código.
+  Future<String> verifyAndUpdatePhone({
+    required String verificationId,
+    required String smsCode,
+  }) async {
+    final credential = PhoneAuthProvider.credential(
+      verificationId: verificationId,
+      smsCode: smsCode,
+    );
+    final result = await FirebaseAuth.instance.signInWithCredential(credential);
+    final idToken = await result.user!.getIdToken();
+    final data = await _api.patch('/auth/phone', {'idToken': idToken!}) as Map<String, dynamic>;
+    // Refresh cached user so phone shows up immediately everywhere
+    final me = await _api.get('/auth/me') as Map<String, dynamic>;
+    _currentUser = AuthUser.fromJson(me);
+    return data['phone'] as String;
+  }
+
+  /// Actualiza nombre y/o apellido del perfil.
+  Future<void> updateProfile({String? firstName, String? lastName}) async {
+    final body = <String, String>{};
+    if (firstName != null) body['firstName'] = firstName;
+    if (lastName != null) body['lastName'] = lastName;
+    if (body.isEmpty) return;
+    await _api.patch('/auth/profile', body);
+    // Refrescar currentUser
+    final me = await _api.get('/auth/me') as Map<String, dynamic>;
+    _currentUser = AuthUser.fromJson(me);
   }
 
   Future<void> signOut() async {

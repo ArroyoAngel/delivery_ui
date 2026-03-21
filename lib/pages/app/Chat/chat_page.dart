@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
+import '../../../services/auth_service.dart';
 import '../../../services/chat_service.dart';
+import '../../../services/cart_service.dart';
+import '../Orders/payment_page.dart';
+import '../settings/edit_profile_page.dart';
+import '../settings/addresses_page.dart';
 
 class ChatPage extends StatefulWidget {
   final String title;
@@ -19,22 +24,20 @@ class _ChatPageState extends State<ChatPage> {
   final _service = ChatService();
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+
+  // Todos los mensajes (incluyendo 'system' que no se muestran)
   final List<ChatMessage> _messages = [];
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _initSystemContext();
-  }
-
-  void _initSystemContext() {
-    // Optional: add a system greeting so the user sees the chat is ready
-    final greeting = widget.context != null
-        ? 'Hola, estoy aquí para ayudarte con tu pedido.\n_${widget.context}_'
-        : 'Hola, soy tu asistente de delivery. ¿En qué te puedo ayudar?';
-
-    _messages.add(ChatMessage(role: 'assistant', content: greeting));
+    _messages.add(ChatMessage(
+      role: 'assistant',
+      content: widget.context != null
+          ? 'Hola, estoy aquí para ayudarte con tu pedido.\n_${widget.context}_'
+          : '¡Hola! Soy tu asistente de YaYa Eats. Puedo recomendarte platos y hacer tu pedido. ¿Qué se te antoja hoy?',
+    ));
   }
 
   @override
@@ -47,38 +50,101 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _send() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _isLoading) return;
-
     _controller.clear();
     setState(() {
       _messages.add(ChatMessage(role: 'user', content: text));
       _isLoading = true;
     });
     _scrollToBottom();
+    await _dispatchToAi();
+  }
 
+  /// Envía el historial a la IA y procesa la respuesta.
+  Future<void> _dispatchToAi() async {
     try {
-      // Skip index 0 (UI greeting) — system prompt is injected by ChatService
+      // Los mensajes 'system' van al API pero los skipeamos del saludo inicial
       final history = _messages.skip(1).toList();
-      final reply = await _service.sendMessage(history);
-      if (mounted) {
+      final response = await _service.sendMessage(history);
+
+      if (!mounted) return;
+
+      // Mostrar el texto de la respuesta
+      if (response.text.isNotEmpty) {
         setState(() {
-          _messages.add(ChatMessage(role: 'assistant', content: reply));
+          _messages.add(ChatMessage(role: 'assistant', content: response.text));
         });
         _scrollToBottom();
       }
-    } catch (e) {
-      if (mounted) {
-        final msg = e.toString().contains('SocketException') ||
-                e.toString().contains('Connection refused') ||
-                e.toString().contains('Failed host lookup')
-            ? '⚠️ Sin conexión al servidor (${ChatService.debugUrl}). Verifica que Open WebUI esté activo.'
-            : '⚠️ Error: $e';
-        setState(() {
-          _messages.add(ChatMessage(role: 'assistant', content: msg));
-        });
+
+      // Ejecutar la acción si existe
+      if (response.action != null) {
+        await _handleAction(response.action!);
       }
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e.toString().contains('SocketException') ||
+              e.toString().contains('Connection refused') ||
+              e.toString().contains('Failed host lookup')
+          ? '⚠️ Sin conexión al servidor. Verifica que el backend esté activo.'
+          : '⚠️ Error: $e';
+      setState(() {
+        _messages.add(ChatMessage(role: 'assistant', content: msg));
+      });
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // ── Manejo de acciones ────────────────────────────────────────────────────
+
+  Future<void> _handleAction(AiAction action) async {
+    switch (action.type) {
+      case 'OPEN_PAYMENT':
+        await _handleOpenPayment(action.data);
+      case 'PAYMENT_CONFIRMED':
+        _handlePaymentConfirmed();
+      case 'OPEN_ADDRESSES':
+        _handleOpenAddresses();
+    }
+  }
+
+  void _handleOpenAddresses() {
+    if (!mounted) return;
+    setState(() {
+      _messages.add(ChatMessage(
+        role: 'assistant',
+        content: '__CARD__:OPEN_ADDRESSES',
+      ));
+    });
+    _scrollToBottom();
+  }
+
+  /// El backend ya creó la orden — solo abrimos la pantalla de pago.
+  Future<void> _handleOpenPayment(Map<String, dynamic> data) async {
+    final orderId = data['orderId'] as String?;
+    final total = (data['total'] as num?)?.toDouble() ?? 0.0;
+    final paymentReference = data['paymentReference'] as String?;
+    final shopName = data['shopName'] as String? ?? data['restaurantName'] as String? ?? 'Negocio';
+
+    if (orderId == null || !mounted) return;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PaymentPage(
+          orderId: orderId,
+          amount: total,
+          shopName: shopName,
+          paymentReference: paymentReference,
+        ),
+      ),
+    );
+  }
+
+  /// Pago confirmado — limpiar carrito y volver al inicio.
+  void _handlePaymentConfirmed() {
+    CartService().clear();
+    if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   void _scrollToBottom() {
@@ -98,6 +164,77 @@ class _ChatPageState extends State<ChatPage> {
     final theme = Theme.of(context);
     final primary = theme.colorScheme.primary;
 
+    // ── Phone gate ───────────────────────────────────────────────────────────
+    final user = AuthService().currentUser;
+    if (user != null && !user.hasPhone) {
+      return Scaffold(
+        backgroundColor: theme.colorScheme.surface,
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: const Text('Asistente de Delivery',
+              style: TextStyle(fontWeight: FontWeight.w700)),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.phone_locked_outlined,
+                    size: 64, color: Colors.grey.shade400),
+                const SizedBox(height: 20),
+                Text(
+                  'Teléfono requerido',
+                  style: theme.textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Para usar el asistente de IA necesitas verificar tu número de teléfono.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 28),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const EditProfilePage()),
+                    );
+                    setState(() {});
+                  },
+                  icon: const Icon(Icons.phone_outlined),
+                  label: const Text('Verificar teléfono',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    elevation: 0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ── Chat UI ──────────────────────────────────────────────────────────────
+    // Solo mensajes visibles (user y assistant)
+    final visible = _messages
+        .where((m) => m.role == 'user' || m.role == 'assistant')
+        .toList();
+
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
       appBar: AppBar(
@@ -112,8 +249,7 @@ class _ChatPageState extends State<ChatPage> {
             CircleAvatar(
               radius: 18,
               backgroundColor: theme.colorScheme.primaryContainer,
-              child: Icon(Icons.delivery_dining,
-                  size: 20, color: primary),
+              child: Icon(Icons.delivery_dining, size: 20, color: primary),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -123,16 +259,13 @@ class _ChatPageState extends State<ChatPage> {
                   Text(
                     widget.title,
                     style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15,
-                    ),
+                        fontWeight: FontWeight.w700, fontSize: 15),
                   ),
                   Text(
                     'Asistente IA',
                     style: TextStyle(
-                      fontSize: 11,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+                        fontSize: 11,
+                        color: theme.colorScheme.onSurfaceVariant),
                   ),
                 ],
               ),
@@ -142,22 +275,18 @@ class _ChatPageState extends State<ChatPage> {
       ),
       body: Column(
         children: [
-          // Messages list
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              itemCount: _messages.length + (_isLoading ? 1 : 0),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              itemCount: visible.length + (_isLoading ? 1 : 0),
               itemBuilder: (_, i) {
-                if (i == _messages.length) {
-                  return const _TypingIndicator();
-                }
-                return _MessageBubble(message: _messages[i]);
+                if (i == visible.length) return const _TypingIndicator();
+                return _MessageBubble(message: visible[i]);
               },
             ),
           ),
-
-          // Input bar
           Container(
             color: Colors.white,
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
@@ -171,8 +300,7 @@ class _ChatPageState extends State<ChatPage> {
                       textCapitalization: TextCapitalization.sentences,
                       decoration: InputDecoration(
                         hintText: 'Escribe tu consulta...',
-                        hintStyle:
-                            TextStyle(color: Colors.grey.shade400),
+                        hintStyle: TextStyle(color: Colors.grey.shade400),
                         filled: true,
                         fillColor: Colors.grey.shade100,
                         contentPadding: const EdgeInsets.symmetric(
@@ -193,9 +321,7 @@ class _ChatPageState extends State<ChatPage> {
                       width: 44,
                       height: 44,
                       decoration: BoxDecoration(
-                        color: primary,
-                        shape: BoxShape.circle,
-                      ),
+                          color: primary, shape: BoxShape.circle),
                       child: const Icon(Icons.send,
                           color: Colors.white, size: 20),
                     ),
@@ -210,7 +336,7 @@ class _ChatPageState extends State<ChatPage> {
   }
 }
 
-// ── Message Bubble ────────────────────────────────────────────────────────────
+// ── Message Bubble ─────────────────────────────────────────────────────────────
 
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
@@ -221,6 +347,11 @@ class _MessageBubble extends StatelessWidget {
     final theme = Theme.of(context);
     final isUser = message.role == 'user';
     final primary = theme.colorScheme.primary;
+
+    // Tarjeta especial para acciones de navegación
+    if (message.content == '__CARD__:OPEN_ADDRESSES') {
+      return _AddressCard();
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -233,14 +364,14 @@ class _MessageBubble extends StatelessWidget {
             CircleAvatar(
               radius: 14,
               backgroundColor: theme.colorScheme.primaryContainer,
-              child: Icon(Icons.delivery_dining,
-                  size: 14, color: primary),
+              child: Icon(Icons.delivery_dining, size: 14, color: primary),
             ),
             const SizedBox(width: 8),
           ],
           Flexible(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
                 color: isUser ? primary : Colors.white,
                 borderRadius: BorderRadius.only(
@@ -260,7 +391,8 @@ class _MessageBubble extends StatelessWidget {
               child: Text(
                 message.content,
                 style: TextStyle(
-                  color: isUser ? Colors.white : theme.colorScheme.onSurface,
+                  color:
+                      isUser ? Colors.white : theme.colorScheme.onSurface,
                   fontSize: 14,
                   height: 1.4,
                 ),
@@ -274,7 +406,109 @@ class _MessageBubble extends StatelessWidget {
   }
 }
 
-// ── Typing Indicator ──────────────────────────────────────────────────────────
+// ── Tarjeta: ir a registrar dirección ──────────────────────────────────────────
+
+class _AddressCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          CircleAvatar(
+            radius: 14,
+            backgroundColor: theme.colorScheme.primaryContainer,
+            child: Icon(Icons.delivery_dining, size: 14, color: primary),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                  bottomLeft: Radius.circular(4),
+                  bottomRight: Radius.circular(16),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.location_off_outlined,
+                          size: 18, color: Colors.orange.shade700),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Sin dirección registrada',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            color: theme.colorScheme.onSurface,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Para recibir tu pedido necesitas guardar al menos una dirección en tu perfil.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade600,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const AddressesPage()),
+                        );
+                      },
+                      icon: const Icon(Icons.add_location_alt_outlined,
+                          size: 18),
+                      label: const Text('Registrar dirección',
+                          style: TextStyle(fontWeight: FontWeight.w600)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Typing Indicator ───────────────────────────────────────────────────────────
 
 class _TypingIndicator extends StatefulWidget {
   const _TypingIndicator();
@@ -317,7 +551,8 @@ class _TypingIndicatorState extends State<_TypingIndicator>
           ),
           const SizedBox(width: 8),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
@@ -329,9 +564,11 @@ class _TypingIndicatorState extends State<_TypingIndicator>
                   mainAxisSize: MainAxisSize.min,
                   children: List.generate(3, (i) {
                     final delay = i / 3;
-                    final value = (_controller.value - delay).clamp(0.0, 1.0);
-                    final opacity = (value < 0.5 ? value * 2 : (1 - value) * 2)
-                        .clamp(0.3, 1.0);
+                    final value =
+                        (_controller.value - delay).clamp(0.0, 1.0);
+                    final opacity =
+                        (value < 0.5 ? value * 2 : (1 - value) * 2)
+                            .clamp(0.3, 1.0);
                     return Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 2),
                       child: Opacity(

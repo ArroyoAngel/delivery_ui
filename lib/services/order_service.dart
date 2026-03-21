@@ -1,18 +1,18 @@
 import 'api_client.dart';
 
-class ExpressRestaurantOrder {
-  final String restaurantId;
+class ExpressShopOrder {
+  final String shopId;
   final List<OrderItem> items;
   final String? notes;
 
-  ExpressRestaurantOrder({
-    required this.restaurantId,
+  ExpressShopOrder({
+    required this.shopId,
     required this.items,
     this.notes,
   });
 
   Map<String, dynamic> toJson() => {
-    'restaurantId': restaurantId,
+    'shopId': shopId,
     'items': items.map((e) => e.toJson()).toList(),
     if (notes != null) 'notes': notes,
   };
@@ -85,8 +85,8 @@ class DeliveryOrderItem {
 
 class DeliveryOrder {
   final String id;
-  final String restaurantId;
-  final String? restaurantName;
+  final String shopId;
+  final String? shopName;
   final String status;
   final String deliveryType;
   final String? deliveryAddress;
@@ -100,8 +100,8 @@ class DeliveryOrder {
 
   DeliveryOrder({
     required this.id,
-    required this.restaurantId,
-    this.restaurantName,
+    required this.shopId,
+    this.shopName,
     required this.status,
     required this.deliveryType,
     this.deliveryAddress,
@@ -125,10 +125,10 @@ class DeliveryOrder {
 
   factory DeliveryOrder.fromJson(Map<String, dynamic> j) => DeliveryOrder(
     id: j['id'] as String,
-    restaurantId:
-        j['restaurantId'] as String? ?? j['restaurant_id'] as String? ?? '',
-    restaurantName:
-        j['restaurantName'] as String? ?? j['restaurant_name'] as String?,
+    shopId:
+        j['shopId'] as String? ?? j['shop_id'] as String? ?? j['restaurantId'] as String? ?? j['restaurant_id'] as String? ?? '',
+    shopName:
+        j['shopName'] as String? ?? j['shop_name'] as String? ?? j['restaurantName'] as String? ?? j['restaurant_name'] as String?,
     status: j['status'] as String? ?? 'pendiente',
     deliveryType:
         j['deliveryType'] as String? ??
@@ -180,16 +180,17 @@ class OrderService {
   }
 
   Future<DeliveryOrder> createOrder({
-    required String restaurantId,
+    required String shopId,
     required List<OrderItem> items,
     String deliveryType = 'delivery',
     String? deliveryAddress,
     double? deliveryLat,
     double? deliveryLng,
     String? notes,
+    String? couponCode,
   }) async {
     final body = <String, dynamic>{
-      'restaurantId': restaurantId,
+      'shopId': shopId,
       'items': items.map((e) => e.toJson()).toList(),
       'deliveryType': deliveryType,
     };
@@ -197,18 +198,36 @@ class OrderService {
     if (deliveryLat != null) body['deliveryLat'] = deliveryLat;
     if (deliveryLng != null) body['deliveryLng'] = deliveryLng;
     if (notes != null) body['notes'] = notes;
+    if (couponCode != null && couponCode.isNotEmpty) body['couponCode'] = couponCode;
     final data = await _api.post('/orders', body) as Map<String, dynamic>;
     return DeliveryOrder.fromJson(data);
   }
 
+  /// Valida un cupón y devuelve el monto de descuento.
+  /// Lanza excepción si el cupón no es válido.
+  Future<double> validateCoupon({
+    required String code,
+    required double subtotal,
+    required double deliveryFee,
+    required String shopId,
+  }) async {
+    final data = await _api.post('/coupons/validate', {
+      'code': code,
+      'subtotal': subtotal,
+      'deliveryFee': deliveryFee,
+      'shopId': shopId,
+    }) as Map<String, dynamic>;
+    return double.tryParse((data['discountAmount'] ?? '0').toString()) ?? 0.0;
+  }
+
   Future<ExpressCheckoutResult> expressCheckout({
-    required List<ExpressRestaurantOrder> restaurants,
+    required List<ExpressShopOrder> shops,
     String? deliveryAddress,
     double? deliveryLat,
     double? deliveryLng,
   }) async {
     final body = <String, dynamic>{
-      'orders': restaurants.map((r) => r.toJson()).toList(),
+      'orders': shops.map((r) => r.toJson()).toList(),
       if (deliveryAddress != null) 'deliveryAddress': deliveryAddress,
       if (deliveryLat != null) 'deliveryLat': deliveryLat,
       if (deliveryLng != null) 'deliveryLng': deliveryLng,

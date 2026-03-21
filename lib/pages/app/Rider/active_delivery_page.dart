@@ -232,7 +232,7 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(o.restaurantName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                                    Text(o.shopName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                                     Text(
                                       o.status == 'preparando' ? 'Preparando tu pedido...' : 'Confirmado, esperando inicio',
                                       style: TextStyle(fontSize: 12, color: Colors.orange[700]),
@@ -354,8 +354,8 @@ class _PickupCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(stop.restaurantName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                        Text(stop.restaurantAddress, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                        Text(stop.shopName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                        Text(stop.shopAddress, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
                       ],
                     ),
                   ),
@@ -432,8 +432,8 @@ class _StopCard extends StatelessWidget {
               icon: Icons.store_outlined,
               iconColor: theme.colorScheme.primary,
               label: 'Recogido en',
-              title: stop.restaurantName,
-              subtitle: stop.restaurantAddress,
+              title: stop.shopName,
+              subtitle: stop.shopAddress,
             ),
             const Padding(
               padding: EdgeInsets.only(left: 11),

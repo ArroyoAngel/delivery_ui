@@ -170,7 +170,7 @@ class _OrdersPageState extends State<OrdersPage> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      order.restaurantName ?? 'Restaurante',
+                                      order.shopName ?? 'Restaurante',
                                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
                                     ),
                                     const SizedBox(height: 3),

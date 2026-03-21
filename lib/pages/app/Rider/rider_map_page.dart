@@ -47,16 +47,16 @@ class _RiderMapPageState extends State<RiderMapPage> {
     for (final order in widget.group.orders) {
       // Si el rider ya recogió este pedido, no necesita pasar por el restaurante
       if (order.status == 'en_camino' || order.status == 'entregado') continue;
-      final key = '${order.restaurantLat},${order.restaurantLng}';
+      final key = '${order.shopLat},${order.shopLng}';
       if (!seen.contains(key) &&
-          order.restaurantLat != null &&
-          order.restaurantLng != null) {
+          order.shopLat != null &&
+          order.shopLng != null) {
         seen.add(key);
         result.add(
           _Waypoint(
-            lat: order.restaurantLat!,
-            lng: order.restaurantLng!,
-            label: order.restaurantName,
+            lat: order.shopLat!,
+            lng: order.shopLng!,
+            label: order.shopName,
             type: WaypointType.pickup,
             status: order.status,
           ),

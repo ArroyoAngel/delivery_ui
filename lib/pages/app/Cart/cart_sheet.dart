@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../services/cart_service.dart';
 import '../../../services/order_service.dart';
-import '../../../services/restaurant_service.dart';
+import '../../../services/shop_service.dart';
 import '../../../services/address_service.dart';
 import '../Orders/payment_page.dart';
 import '../settings/addresses_page.dart';
@@ -16,22 +16,29 @@ class CartSheet extends StatefulWidget {
 class _CartSheetState extends State<CartSheet> {
   final _cart = CartService();
   final _orderService = OrderService();
-  final _restaurantService = RestaurantService();
+  final _shopService = ShopService();
   final _addressService = AddressService();
 
   bool _isOrdering = false;
   String _deliveryType = 'delivery';
-  double? _restaurantDeliveryFee;
+  double? _shopDeliveryFee;
 
   List<UserAddress> _addresses = [];
   UserAddress? _selectedAddress;
   bool _loadingAddresses = false;
 
+  // Cupón
+  final _couponController = TextEditingController();
+  String? _appliedCouponCode;
+  double _couponDiscount = 0;
+  bool _validatingCoupon = false;
+  String? _couponError;
+
   @override
   void initState() {
     super.initState();
     _cart.addListener(_onCartChanged);
-    if (!_cart.isMultiRestaurant && _cart.restaurantIds.isNotEmpty) {
+    if (!_cart.isMultiShop && _cart.shopIds.isNotEmpty) {
       _loadDeliveryFee();
     }
     _loadAddresses();
@@ -62,12 +69,49 @@ class _CartSheetState extends State<CartSheet> {
   bool get _needsAddress =>
       _deliveryType == 'delivery' ||
       _deliveryType == 'express' ||
-      _cart.isMultiRestaurant;
+      _cart.isMultiShop;
 
   @override
   void dispose() {
     _cart.removeListener(_onCartChanged);
+    _couponController.dispose();
     super.dispose();
+  }
+
+  Future<void> _applyCoupon() async {
+    final code = _couponController.text.trim();
+    if (code.isEmpty) return;
+    if (_cart.shopIds.isEmpty) return;
+    setState(() { _validatingCoupon = true; _couponError = null; });
+    try {
+      final discount = await _orderService.validateCoupon(
+        code: code,
+        subtotal: _subtotal,
+        deliveryFee: _deliveryFee,
+        shopId: _cart.shopIds.first,
+      );
+      setState(() {
+        _appliedCouponCode = code.toUpperCase();
+        _couponDiscount = discount;
+      });
+    } catch (e) {
+      setState(() {
+        _couponError = e.toString().replaceFirst('Exception: ', '');
+        _appliedCouponCode = null;
+        _couponDiscount = 0;
+      });
+    } finally {
+      if (mounted) setState(() => _validatingCoupon = false);
+    }
+  }
+
+  void _removeCoupon() {
+    setState(() {
+      _appliedCouponCode = null;
+      _couponDiscount = 0;
+      _couponError = null;
+      _couponController.clear();
+    });
   }
 
   void _onCartChanged() {
@@ -76,23 +120,23 @@ class _CartSheetState extends State<CartSheet> {
 
   Future<void> _loadDeliveryFee() async {
     try {
-      final r = await _restaurantService.getRestaurant(
-        _cart.restaurantIds.first,
+      final s = await _shopService.getShop(
+        _cart.shopIds.first,
       );
-      if (mounted) setState(() => _restaurantDeliveryFee = r.deliveryFee ?? 0);
+      if (mounted) setState(() => _shopDeliveryFee = s.deliveryFee ?? 0);
     } catch (_) {}
   }
 
   double get _subtotal => _cart.subtotal;
 
   double get _deliveryFee {
-    final base = _restaurantDeliveryFee ?? 0;
+    final base = _shopDeliveryFee ?? 0;
     if (_deliveryType == 'express') return base * 2;
     if (_deliveryType == 'delivery') return base;
     return 0;
   }
 
-  double get _total => _subtotal + _deliveryFee;
+  double get _total => _subtotal + _deliveryFee - _couponDiscount;
 
   Future<void> _checkout() async {
     // Validar dirección de entrega cuando se requiere
@@ -118,10 +162,10 @@ class _CartSheetState extends State<CartSheet> {
 
     setState(() => _isOrdering = true);
     try {
-      if (_cart.isMultiRestaurant) {
-        await _checkoutMultiRestaurant();
+      if (_cart.isMultiShop) {
+        await _checkoutMultiShop();
       } else {
-        await _checkoutSingleRestaurant();
+        await _checkoutSingleShop();
       }
     } catch (e) {
       if (mounted) {
@@ -134,24 +178,24 @@ class _CartSheetState extends State<CartSheet> {
     }
   }
 
-  Future<void> _checkoutMultiRestaurant() async {
-    final byRestaurant = _cart.byRestaurant;
-    final restaurantNames = <String>[];
-    final expressOrders = <ExpressRestaurantOrder>[];
+  Future<void> _checkoutMultiShop() async {
+    final byShop = _cart.byShop;
+    final shopNames = <String>[];
+    final expressOrders = <ExpressShopOrder>[];
 
-    for (final restaurantId in byRestaurant.keys) {
-      final entries = byRestaurant[restaurantId]!;
-      restaurantNames.add(entries.first.restaurantName);
+    for (final shopId in byShop.keys) {
+      final entries = byShop[shopId]!;
+      shopNames.add(entries.first.shopName);
       expressOrders.add(
-        ExpressRestaurantOrder(
-          restaurantId: restaurantId,
+        ExpressShopOrder(
+          shopId: shopId,
           items: entries.map((e) => e.item).toList(),
         ),
       );
     }
 
     final result = await _orderService.expressCheckout(
-      restaurants: expressOrders,
+      shops: expressOrders,
       deliveryAddress: _selectedAddress?.fullAddress,
       deliveryLat: _selectedAddress?.latitude,
       deliveryLng: _selectedAddress?.longitude,
@@ -170,29 +214,30 @@ class _CartSheetState extends State<CartSheet> {
         builder: (_) => PaymentPage(
           groupId: result.groupId,
           amount: result.total,
-          restaurantName: restaurantNames.join(' + '),
+          shopName: shopNames.join(' + '),
           paymentReference: result.paymentReference,
         ),
       ),
     );
   }
 
-  Future<void> _checkoutSingleRestaurant() async {
-    final restaurantId = _cart.restaurantIds.first;
+  Future<void> _checkoutSingleShop() async {
+    final shopId = _cart.shopIds.first;
     final items = _cart.entries.map((e) => e.item).toList();
-    final restaurantName = _cart.entries.first.restaurantName;
+    final shopName = _cart.entries.first.shopName;
 
     final order = await _orderService.createOrder(
-      restaurantId: restaurantId,
+      shopId: shopId,
       items: items,
       deliveryType: _deliveryType,
       deliveryAddress: _needsAddress ? _selectedAddress?.fullAddress : null,
       deliveryLat: _needsAddress ? _selectedAddress?.latitude : null,
       deliveryLng: _needsAddress ? _selectedAddress?.longitude : null,
+      couponCode: _appliedCouponCode,
     );
 
     if (!mounted) return;
-    _cart.clearRestaurant(restaurantId); // Limpiar carrito al confirmar
+    _cart.clearShop(shopId); // Limpiar carrito al confirmar
     Navigator.pop(context);
 
     if (_deliveryType == 'recogida') {
@@ -209,7 +254,7 @@ class _CartSheetState extends State<CartSheet> {
           builder: (_) => PaymentPage(
             orderId: order.id,
             amount: order.total + order.platformFee,
-            restaurantName: restaurantName,
+            shopName: shopName,
             paymentReference: order.paymentReference,
           ),
         ),
@@ -220,8 +265,8 @@ class _CartSheetState extends State<CartSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isMulti = _cart.isMultiRestaurant;
-    final byRestaurant = _cart.byRestaurant;
+    final isMulti = _cart.isMultiShop;
+    final byShop = _cart.byShop;
 
     return Container(
       decoration: const BoxDecoration(
@@ -274,7 +319,7 @@ class _CartSheetState extends State<CartSheet> {
             ),
           ),
 
-          // Multi-restaurant banner
+          // Multi-shop banner
           if (isMulti)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -306,7 +351,7 @@ class _CartSheetState extends State<CartSheet> {
                             ),
                           ),
                           Text(
-                            'Elegiste productos de ${byRestaurant.length} restaurantes distintos. Se procesará un pedido Express por restaurante con tarifa ×2.',
+                            'Elegiste productos de ${byShop.length} negocios distintos. Se procesará un pedido Express por negocio con tarifa ×2.',
                             style: TextStyle(
                               color: Colors.orange.shade700,
                               fontSize: 12,
@@ -330,7 +375,7 @@ class _CartSheetState extends State<CartSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final restaurantId in byRestaurant.keys) ...[
+                  for (final shopId in byShop.keys) ...[
                     if (isMulti)
                       Padding(
                         padding: const EdgeInsets.only(top: 8, bottom: 4),
@@ -343,7 +388,7 @@ class _CartSheetState extends State<CartSheet> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              byRestaurant[restaurantId]!.first.restaurantName,
+                              byShop[shopId]!.first.shopName,
                               style: TextStyle(
                                 fontWeight: FontWeight.w600,
                                 fontSize: 13,
@@ -353,13 +398,13 @@ class _CartSheetState extends State<CartSheet> {
                           ],
                         ),
                       ),
-                    ...byRestaurant[restaurantId]!.map(
+                    ...byShop[shopId]!.map(
                       (e) => _CartItemRow(
                         entry: e,
                         onAdd: () => _cart.addItem(
                           e.item,
-                          e.restaurantId,
-                          e.restaurantName,
+                          e.shopId,
+                          e.shopName,
                         ),
                         onRemove: () => _cart.removeItem(e.item.menuItemId),
                       ),
@@ -370,7 +415,7 @@ class _CartSheetState extends State<CartSheet> {
             ),
           ),
 
-          // Delivery type selector (all 3 always visible; disabled when multi-restaurant)
+          // Delivery type selector (all 3 always visible; disabled when multi-shop)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Row(
@@ -540,6 +585,100 @@ class _CartSheetState extends State<CartSheet> {
                     ),
             ),
 
+          // Cupón (solo para pedido simple, no multi-shop)
+          if (!isMulti)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: _appliedCouponCode != null
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.green.shade300),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.local_offer, size: 16, color: Colors.green.shade700),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '$_appliedCouponCode · −Bs ${_couponDiscount.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                color: Colors.green.shade800,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: _removeCoupon,
+                            child: Icon(Icons.close, size: 18, color: Colors.green.shade700),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _couponController,
+                                textCapitalization: TextCapitalization.characters,
+                                style: const TextStyle(fontSize: 13),
+                                decoration: InputDecoration(
+                                  hintText: 'Código de cupón',
+                                  hintStyle: const TextStyle(fontSize: 13),
+                                  prefixIcon: const Icon(Icons.local_offer_outlined, size: 18),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide(color: Colors.grey.shade300),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide(color: Colors.grey.shade300),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: BorderSide(color: Theme.of(context).colorScheme.primary),
+                                  ),
+                                ),
+                                onSubmitted: (_) => _applyCoupon(),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              height: 44,
+                              child: ElevatedButton(
+                                onPressed: _validatingCoupon ? null : _applyCoupon,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Theme.of(context).colorScheme.primary,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  elevation: 0,
+                                ),
+                                child: _validatingCoupon
+                                    ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                    : const Text('Aplicar', style: TextStyle(fontSize: 13)),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_couponError != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            _couponError!,
+                            style: TextStyle(fontSize: 11, color: Colors.red.shade600),
+                          ),
+                        ],
+                      ],
+                    ),
+            ),
+
           // Totals
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
@@ -572,7 +711,7 @@ class _CartSheetState extends State<CartSheet> {
                               : Colors.grey.shade600,
                         ),
                       ),
-                      _restaurantDeliveryFee == null
+                      _shopDeliveryFee == null
                           ? Text(
                               '—',
                               style: TextStyle(color: Colors.grey.shade400),
@@ -613,6 +752,22 @@ class _CartSheetState extends State<CartSheet> {
                   ),
                 ],
                 const SizedBox(height: 8),
+                if (!isMulti && _couponDiscount > 0) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Cupón $_appliedCouponCode',
+                        style: TextStyle(color: Colors.green.shade700, fontSize: 13),
+                      ),
+                      Text(
+                        '−Bs ${_couponDiscount.toStringAsFixed(2)}',
+                        style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ],
                 if (!isMulti) ...[
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,

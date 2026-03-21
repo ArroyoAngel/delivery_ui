@@ -9,6 +9,7 @@ import 'Rider/available_groups_page.dart';
 import 'Rider/active_delivery_page.dart';
 import '../../services/cart_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/location_tracking_service.dart';
 import 'Cart/cart_sheet.dart';
 
 class AppRoot extends StatefulWidget {
@@ -64,6 +65,13 @@ class _AppRootState extends State<AppRoot> {
     }
 
     if (mode != stored) await prefs.setString('active_mode', mode);
+
+    // Si cargamos en modo rider y el rider estaba online, reanudar tracking
+    if (mode == 'rider') {
+      final wasOnline = prefs.getBool('rider_online') ?? false;
+      if (wasOnline) await LocationTrackingService().start();
+    }
+
     if (mounted) setState(() { _activeMode = mode; _selectedIndex = 0; });
   }
 
