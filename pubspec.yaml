@@ -1,7 +1,7 @@
 name: yaya_eats
 description: "YaYa Eats - App de delivery de comida"
 publish_to: 'none'
-version: 1.0.0+3
+version: 1.0.0+4
 
 environment:
   sdk: ^3.9.2
@@ -28,6 +28,7 @@ dependencies:
   flutter_local_notifications: ^18.0.1
   socket_io_client: ^2.0.3
   qr_flutter: ^4.1.0
+  in_app_update: ^4.2.3
 
 dev_dependencies:
   flutter_test:

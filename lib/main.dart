@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
 import 'package:flutter/material.dart';
+import 'package:in_app_update/in_app_update.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -71,6 +72,20 @@ class _SessionGatePageState extends State<SessionGatePage> {
   void initState() {
     super.initState();
     _isSignedInFuture = _authService.isSignedIn();
+    _checkForUpdate();
+  }
+
+  Future<void> _checkForUpdate() async {
+    if (kDebugMode || kProfileMode) return;
+    try {
+      final info = await InAppUpdate.checkForUpdate();
+      if (info.updateAvailability == UpdateAvailability.updateAvailable) {
+        await InAppUpdate.startFlexibleUpdate();
+        InAppUpdate.completeFlexibleUpdate();
+      }
+    } catch (_) {
+      // No interrumpir el flujo si falla la verificación
+    }
   }
 
   @override
