@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../app/app_root.dart';
 import '../../services/auth_service.dart';
 import 'phone_login_page.dart';
+import 'forgot_password_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -265,6 +266,22 @@ class _LoginPageState extends State<LoginPage> {
                     onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                   ),
                 ),
+                if (!_isRegisterMode) ...[
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ForgotPasswordPage()),
+                      ),
+                      child: Text(
+                        '¿Olvidaste tu contraseña?',
+                        style: TextStyle(color: primary, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ],
               ],
 
               const SizedBox(height: 28),

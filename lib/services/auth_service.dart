@@ -190,6 +190,24 @@ class AuthService {
     _currentUser = AuthUser.fromJson(me);
   }
 
+  /// Paso 1 reset: envía OTP al email. No falla si el email no existe (seguridad).
+  Future<void> sendPasswordResetOtp(String email) async {
+    await _api.post('/auth/reset-password/send-otp', {'email': email}, auth: false);
+  }
+
+  /// Paso 2 reset: verifica el código y actualiza la contraseña.
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    await _api.post('/auth/reset-password', {
+      'email': email,
+      'code': code,
+      'newPassword': newPassword,
+    }, auth: false);
+  }
+
   /// Elimina permanentemente la cuenta del usuario autenticado y todos sus datos.
   Future<void> deleteAccount() async {
     await _api.delete('/auth/me');

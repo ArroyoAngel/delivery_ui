@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
@@ -14,9 +15,14 @@ import 'pages/core/onboarding_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await dotenv.load(fileName: '.env.local');
-  } catch (_) {
+  // En release siempre se usa .env (producción). .env.local solo en debug/profile.
+  if (kDebugMode || kProfileMode) {
+    try {
+      await dotenv.load(fileName: '.env.local');
+    } catch (_) {
+      await dotenv.load(fileName: '.env');
+    }
+  } else {
     await dotenv.load(fileName: '.env');
   }
   MapboxOptions.setAccessToken(mapboxAccessToken);
