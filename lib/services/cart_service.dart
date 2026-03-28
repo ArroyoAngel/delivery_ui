@@ -23,7 +23,16 @@ class CartService extends ChangeNotifier {
 
   List<CartEntry> get entries => _entries.values.toList();
 
+  int _maxBagSize = 10;
+  int get maxBagSize => _maxBagSize;
+  void setMaxBagSize(int size) { _maxBagSize = size; notifyListeners(); }
+
   int get totalCount => _entries.values.fold(0, (s, e) => s + e.item.quantity);
+
+  /// Sum of (item.size × quantity) across all cart items
+  int get totalSize => _entries.values.fold(0, (s, e) => s + e.item.size * e.item.quantity);
+
+  bool get isBagFull => totalSize >= _maxBagSize;
 
   double get subtotal =>
       _entries.values.fold(0, (s, e) => s + e.item.price * e.item.quantity);
@@ -44,7 +53,9 @@ class CartService extends ChangeNotifier {
     return map;
   }
 
-  void addItem(OrderItem item, String shopId, String shopName) {
+  /// Returns false if adding the item would exceed the bag size limit.
+  bool addItem(OrderItem item, String shopId, String shopName) {
+    if (totalSize + item.size > _maxBagSize) return false;
     if (_entries.containsKey(item.menuItemId)) {
       _entries[item.menuItemId]!.item.quantity++;
     } else {
@@ -55,6 +66,7 @@ class CartService extends ChangeNotifier {
       );
     }
     notifyListeners();
+    return true;
   }
 
   void removeItem(String menuItemId) {

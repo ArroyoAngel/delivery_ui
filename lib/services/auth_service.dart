@@ -190,6 +190,12 @@ class AuthService {
     _currentUser = AuthUser.fromJson(me);
   }
 
+  /// Elimina permanentemente la cuenta del usuario autenticado y todos sus datos.
+  Future<void> deleteAccount() async {
+    await _api.delete('/auth/me');
+    await signOut();
+  }
+
   Future<void> signOut() async {
     await NotificationService().unregisterOnLogout().catchError((_) {});
     await _api.clearToken();

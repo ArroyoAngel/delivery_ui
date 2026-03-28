@@ -6,6 +6,7 @@ import '../orders/orders_page.dart';
 import 'addresses_page.dart';
 import 'edit_profile_page.dart';
 import 'rider_bank_accounts_page.dart';
+import 'rider_credits_page.dart';
 import 'rider_earnings_page.dart';
 import 'support_ticket_page.dart';
 import '../notifications_sheet.dart';
@@ -76,6 +77,52 @@ class _SettingsPageState extends State<SettingsPage> {
         context,
         MaterialPageRoute(builder: (_) => const AppRoot()),
         (_) => false,
+      );
+    }
+  }
+
+  Future<void> _deleteAccount() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Eliminar cuenta'),
+        content: const Text(
+          'Esta acción es permanente e irreversible.\n\n'
+          'Se borrarán tu perfil, direcciones y datos personales. '
+          'No podrás recuperar tu cuenta.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    try {
+      await LocationTrackingService().stop();
+      await _authService.deleteAccount();
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+        (_) => false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo eliminar la cuenta: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
   }
@@ -271,6 +318,12 @@ class _SettingsPageState extends State<SettingsPage> {
                   if (isRider) ...[
                     const Divider(height: 1, indent: 56),
                     _SettingsTile(
+                      icon: Icons.toll_outlined,
+                      title: 'Mis créditos',
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RiderCreditsPage())),
+                    ),
+                    const Divider(height: 1, indent: 56),
+                    _SettingsTile(
                       icon: Icons.account_balance_wallet_outlined,
                       title: 'Mis ingresos y retiros',
                       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RiderEarningsPage())),
@@ -293,6 +346,13 @@ class _SettingsPageState extends State<SettingsPage> {
                     icon: Icons.help_outline,
                     title: 'Ayuda y soporte',
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupportTicketPage())),
+                  ),
+                  const Divider(height: 1, indent: 56),
+                  _SettingsTile(
+                    icon: Icons.delete_forever_outlined,
+                    title: 'Eliminar cuenta',
+                    onTap: _deleteAccount,
+                    danger: true,
                   ),
                 ],
               ),
@@ -317,6 +377,27 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(height: 32),
+
+            // Atribuciones
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: const [
+                  Text(
+                    'Créditos',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black45, letterSpacing: 0.8),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Ícono de la app "Order food" por Rian Maulana — Flaticon (licencia gratuita con atribución).\nÍconos de interfaz: Font Awesome Free (CC BY 4.0).',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 10, color: Colors.black38, height: 1.5),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
           ],
         ),
       ),
@@ -376,24 +457,27 @@ class _SettingsTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final VoidCallback? onTap;
+  final bool danger;
 
-  const _SettingsTile({required this.icon, required this.title, this.onTap});
+  const _SettingsTile({required this.icon, required this.title, this.onTap, this.danger = false});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final color = danger ? Colors.red : theme.colorScheme.primary;
+    final bgColor = danger ? Colors.red.shade50 : theme.colorScheme.primaryContainer;
     return ListTile(
       tileColor: Colors.white,
       leading: Container(
         width: 36,
         height: 36,
         decoration: BoxDecoration(
-          color: theme.colorScheme.primaryContainer,
+          color: bgColor,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(icon, size: 20, color: theme.colorScheme.primary),
+        child: Icon(icon, size: 20, color: color),
       ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
+      title: Text(title, style: TextStyle(fontWeight: FontWeight.w500, color: danger ? Colors.red : null)),
       trailing: Icon(Icons.chevron_right, color: theme.colorScheme.onSurfaceVariant),
       onTap: onTap,
     );

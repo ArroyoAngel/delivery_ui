@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'api_client.dart';
@@ -28,6 +29,17 @@ class NotificationService {
     playSound: true,
   );
 
+  // Canal de alta prioridad para cancelaciones y entrega
+  static final _androidChannelCritical = AndroidNotificationChannel(
+    'yaya_critical',
+    'Alertas urgentes YaYa Eats',
+    description: 'Cancelaciones y confirmaciones de entrega',
+    importance: Importance.max,
+    playSound: true,
+    enableVibration: true,
+    vibrationPattern: Int64List.fromList([0, 500, 200, 500, 200, 500]),
+  );
+
   Future<void> init() async {
     // Registrar el handler de background
     FirebaseMessaging.onBackgroundMessage(_firebaseBackgroundHandler);
@@ -39,10 +51,11 @@ class NotificationService {
       sound: true,
     );
 
-    // Configurar canal Android
-    await _localNotifications
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(_androidChannel);
+    // Configurar canales Android
+    final androidPlugin = _localNotifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await androidPlugin?.createNotificationChannel(_androidChannel);
+    await androidPlugin?.createNotificationChannel(_androidChannelCritical);
 
     // Inicializar flutter_local_notifications
     const initSettings = InitializationSettings(
@@ -104,18 +117,28 @@ class NotificationService {
     final notification = message.notification;
     if (notification == null) return;
 
+    final type = message.data['type'] as String?;
+    final status = message.data['status'] as String?;
+    final isCritical = type == 'order_cancelled' ||
+        (type == 'order_status' && status == 'entregado');
+
+    final channel = isCritical ? _androidChannelCritical : _androidChannel;
+
     _localNotifications.show(
       notification.hashCode,
       notification.title,
       notification.body,
       NotificationDetails(
         android: AndroidNotificationDetails(
-          _androidChannel.id,
-          _androidChannel.name,
-          channelDescription: _androidChannel.description,
-          importance: Importance.high,
-          priority: Priority.high,
+          channel.id,
+          channel.name,
+          channelDescription: channel.description,
+          importance: isCritical ? Importance.max : Importance.high,
+          priority: isCritical ? Priority.max : Priority.high,
           icon: '@mipmap/ic_launcher',
+          vibrationPattern: isCritical
+              ? Int64List.fromList([0, 500, 200, 500, 200, 500])
+              : null,
         ),
         iOS: const DarwinNotificationDetails(
           presentAlert: true,

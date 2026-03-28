@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'api_client.dart';
 
 class RiderOrderStop {
@@ -12,6 +13,9 @@ class RiderOrderStop {
   final String status;
   final List<Map<String, dynamic>> items;
   final double total;
+  final String? riderInstructions;
+  final double shopRating;
+  final double clientRating;
 
   RiderOrderStop({
     required this.orderId,
@@ -25,7 +29,13 @@ class RiderOrderStop {
     required this.status,
     required this.items,
     required this.total,
+    this.riderInstructions,
+    this.shopRating = 5.0,
+    this.clientRating = 5.0,
   });
+
+  bool get hasSpecialInstructions =>
+      riderInstructions != null && riderInstructions!.isNotEmpty;
 
   factory RiderOrderStop.fromJson(Map<String, dynamic> j) => RiderOrderStop(
         orderId: j['id'] as String,
@@ -41,6 +51,10 @@ class RiderOrderStop {
         items: List<Map<String, dynamic>>.from(
           (j['items'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)),
         ),
+        riderInstructions: j['rider_instructions'] as String? ??
+            j['riderInstructions'] as String?,
+        shopRating: double.tryParse((j['shop_rating'] ?? '').toString()) ?? 5.0,
+        clientRating: double.tryParse((j['client_rating'] ?? '').toString()) ?? 5.0,
       );
 }
 
@@ -106,5 +120,23 @@ class RiderService {
 
   Future<void> markOrderDelivered(String orderId) async {
     await _api.put('/orders/$orderId/done', {});
+  }
+
+  Future<Map<String, dynamic>> getTodayStats() async {
+    final data = await _api.get('/rider/stats/today') as Map<String, dynamic>;
+    debugPrint('[getTodayStats] raw: $data');
+    return {
+      'deliveries_today': int.tryParse(data['deliveries_today']?.toString() ?? '0') ?? 0,
+      'earnings_today':   double.tryParse(data['earnings_today']?.toString() ?? '0') ?? 0.0,
+      'credits':          double.tryParse(data['credits']?.toString() ?? '0') ?? 0.0,
+    };
+  }
+
+  Future<void> setAvailable(bool available) async {
+    await _api.patch('/rider/available', {'available': available});
+  }
+
+  Future<void> cancelOrder(String orderId, String reason) async {
+    await _api.post('/orders/$orderId/rider-cancel', {'reason': reason});
   }
 }

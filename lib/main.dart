@@ -3,14 +3,22 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'mapbox_config.dart';
+import 'services/api_client.dart';
 import 'services/auth_service.dart';
+import 'services/cart_service.dart';
 import 'services/notification_service.dart';
+import 'services/socket_service.dart';
+import 'theme/app_colors.dart';
 import 'pages/app/app_root.dart';
 import 'pages/core/onboarding_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: '.env');
+  try {
+    await dotenv.load(fileName: '.env.local');
+  } catch (_) {
+    await dotenv.load(fileName: '.env');
+  }
   MapboxOptions.setAccessToken(mapboxAccessToken);
   // Firebase se inicializa en background — nunca bloquea el arranque
   Firebase.initializeApp().then((_) {
@@ -18,6 +26,12 @@ Future<void> main() async {
   }).catchError((e) {
     debugPrint('Firebase init error: $e');
   });
+
+  // Cargar límite de bolsa desde config del servidor
+  ApiClient().get('/config/max_bag_size').then((value) {
+    final size = int.tryParse(value?.toString() ?? '');
+    if (size != null && size > 0) CartService().setMaxBagSize(size);
+  }).catchError((_) {});
 
   runApp(const DeliveryApp());
 }
@@ -30,13 +44,7 @@ class DeliveryApp extends StatelessWidget {
     return MaterialApp(
       title: 'YaYa Eats',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFFE53935),
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-      ),
+      theme: AppColors.clientTheme,
       home: const SessionGatePage(),
     );
   }
@@ -71,6 +79,10 @@ class _SessionGatePageState extends State<SessionGatePage> {
         }
 
         if (snapshot.data == true) {
+          // Conectar socket con el token del usuario autenticado
+          ApiClient().getToken().then((token) {
+            SocketService().connect(token: token);
+          });
           return const AppRoot();
         }
 

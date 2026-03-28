@@ -74,15 +74,20 @@ class _ExpressPageState extends State<ExpressPage> {
   }
 
   void _addToCart(_ProductItem p) {
-    _cart.addItem(
-      OrderItem(menuItemId: p.item.id, name: p.item.name, price: p.item.price),
+    final added = _cart.addItem(
+      OrderItem(menuItemId: p.item.id, name: p.item.name, price: p.item.price, size: p.item.size),
       p.shop.id,
       p.shop.name,
     );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${p.item.name} agregado al carrito'),
-        duration: const Duration(seconds: 1),
+        content: Text(
+          added
+              ? '${p.item.name} agregado al carrito'
+              : 'Bolsa llena (${_cart.totalSize}/${_cart.maxBagSize} pts). Quitá algún producto primero.',
+        ),
+        backgroundColor: added ? null : Colors.orange,
+        duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
       ),
     );

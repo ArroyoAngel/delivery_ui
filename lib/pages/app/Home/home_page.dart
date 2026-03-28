@@ -1,42 +1,69 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import '../../../services/auth_service.dart';
+import '../../../theme/app_colors.dart';
 import '../../../services/shop_service.dart';
 import '../../../services/notification_api_service.dart';
+import '../../../services/rating_service.dart';
+import '../../../services/socket_service.dart';
 import '../notifications_sheet.dart';
+import '../ratings/rating_sheet.dart';
 import 'shop_page.dart';
 
-// ── Tipos de negocio disponibles ──────────────────────────────────────────────
+// ── Icon name → IconData mapping ─────────────────────────────────────────────
 
-class _BusinessTypeOption {
-  final String? value; // null = Todos
-  final String label;
-  final IconData icon;
-  const _BusinessTypeOption({this.value, required this.label, required this.icon});
+const _iconMap = <String, IconData>{
+  'restaurant_menu': Icons.restaurant_menu,
+  'local_cafe': Icons.local_cafe,
+  'local_grocery_store': Icons.local_grocery_store,
+  'storefront': Icons.storefront,
+  'local_pharmacy': Icons.local_pharmacy,
+  'restaurant': Icons.restaurant_outlined,
+  'store': Icons.store_outlined,
+  'shopping_basket': Icons.shopping_basket_outlined,
+  'medical_services': Icons.medical_services_outlined,
+};
+
+IconData _resolveIcon(String? name) => name != null
+    ? (_iconMap[name] ?? Icons.store_outlined)
+    : Icons.store_outlined;
+
+Color _parseHex(String? hex) {
+  if (hex == null) return const Color(0xFFF3F4F6);
+  final h = hex.replaceAll('#', '');
+  return Color(int.parse('FF$h', radix: 16));
 }
-
-const _businessTypes = [
-  _BusinessTypeOption(value: null,           label: 'Todos',          icon: Icons.apps),
-  _BusinessTypeOption(value: 'shop',   label: 'Restaurantes',   icon: Icons.shop),
-  _BusinessTypeOption(value: 'supermarket',  label: 'Supermercados',  icon: Icons.local_grocery_store),
-  _BusinessTypeOption(value: 'minimarket',   label: 'Minimarkets',    icon: Icons.store),
-];
 
 String _sectionLabel(String? businessType) {
   switch (businessType) {
-    case 'supermarket': return 'Supermercados';
-    case 'minimarket':  return 'Minimarkets';
-    case 'shop':  return 'Restaurantes';
-    default:            return 'Negocios';
+    case 'supermarket':
+      return 'Supermercados';
+    case 'minimarket':
+      return 'Minimarkets';
+    case 'restaurant':
+      return 'Restaurantes';
+    case 'cafe':
+      return 'Cafeterías';
+    case 'pharmacy':
+      return 'Farmacias';
+    default:
+      return 'Negocios';
   }
 }
 
 String _searchHint(String? businessType) {
   switch (businessType) {
-    case 'supermarket': return 'Buscar supermercado...';
-    case 'minimarket':  return 'Buscar minimarket...';
-    case 'shop':  return 'Buscar shope...';
-    default:            return 'Buscar negocio...';
+    case 'supermarket':
+      return 'Buscar supermercado...';
+    case 'minimarket':
+      return 'Buscar minimarket...';
+    case 'restaurant':
+      return 'Buscar restaurante...';
+    case 'cafe':
+      return 'Buscar cafetería...';
+    case 'pharmacy':
+      return 'Buscar farmacia...';
+    default:
+      return 'Buscar negocio...';
   }
 }
 
@@ -50,20 +77,42 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final _shopService = ShopService();
   final _notifService = NotificationApiService();
+  final _ratingService = RatingService();
   final _searchController = TextEditingController();
 
   late Future<List<Shop>> _shopsFuture;
   late Future<List<ShopCategory>> _categoriesFuture;
+  late Future<List<BusinessTypeInfo>> _businessTypesFuture;
   String? _selectedCategory;
   String? _selectedBusinessType; // null = todos
   int _unreadCount = 0;
 
+  // Overrides de status recibidos por WebSocket
+  final Map<String, String> _statusOverrides = {};
+
   @override
   void initState() {
     super.initState();
+    _businessTypesFuture = _shopService.getBusinessTypes();
     _loadCategories();
     _load();
     _loadUnreadCount();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkPendingRatings());
+    SocketService().on('shop:status_changed', (data) {
+      if (!mounted) return;
+      final shopId = data['shopId'] as String?;
+      final status = data['status'] as String?;
+      if (shopId != null && status != null) {
+        setState(() => _statusOverrides[shopId] = status);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    SocketService().off('shop:status_changed');
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadUnreadCount() async {
@@ -71,6 +120,18 @@ class _HomePageState extends State<HomePage> {
       final count = await _notifService.getUnreadCount();
       if (mounted) setState(() => _unreadCount = count);
     } catch (_) {}
+  }
+
+  Future<void> _checkPendingRatings() async {
+    try {
+      final orderId = await _ratingService.getFirstPendingOrderId();
+      if (orderId != null && mounted) {
+        await showRatingSheet(context, orderId);
+      }
+    } catch (e, st) {
+      debugPrint('[_checkPendingRatings] ERROR: $e');
+      debugPrint('[_checkPendingRatings] STACK: $st');
+    }
   }
 
   void _openNotifications() {
@@ -96,7 +157,9 @@ class _HomePageState extends State<HomePage> {
   void _load() {
     setState(() {
       _shopsFuture = _shopService.getShops(
-        search: _searchController.text.trim().isEmpty ? null : _searchController.text.trim(),
+        search: _searchController.text.trim().isEmpty
+            ? null
+            : _searchController.text.trim(),
         categoryId: _selectedCategory,
         businessType: _selectedBusinessType,
       );
@@ -111,15 +174,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final user = AuthService().currentUser;
 
     return SafeArea(
       child: RefreshIndicator(
@@ -134,52 +190,82 @@ class _HomePageState extends State<HomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                'Hola, ${user?.firstName ?? 'amigo'} 👋',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
+                              const Text(
+                                'YaYa! Eats',
+                                style: TextStyle(
+                                  color: AppColors.orange,
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w900,
+                                  fontStyle: FontStyle.italic,
+                                  letterSpacing: -0.5,
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '¿Qué vas a pedir hoy?',
-                                style: theme.textTheme.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
+                              const SizedBox(height: 3),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: const [
+                                  Icon(
+                                    Icons.location_on,
+                                    color: AppColors.orange,
+                                    size: 13,
+                                  ),
+                                  SizedBox(width: 3),
+                                  Text(
+                                    'Santa Cruz, Bolivia',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF374151),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                         ),
-                        Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.notifications_outlined),
-                              onPressed: _openNotifications,
-                              tooltip: 'Notificaciones',
-                            ),
-                            if (_unreadCount > 0)
-                              Positioned(
-                                top: 6,
-                                right: 6,
-                                child: Container(
-                                  padding: const EdgeInsets.all(3),
-                                  decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                                  child: Text(
-                                    _unreadCount > 99 ? '99+' : '$_unreadCount',
-                                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
-                                    textAlign: TextAlign.center,
-                                  ),
+                        GestureDetector(
+                          onTap: _openNotifications,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFF3F4F6),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.notifications_outlined,
+                                  color: Color(0xFF4B5563),
+                                  size: 22,
                                 ),
                               ),
-                          ],
+                              if (_unreadCount > 0)
+                                Positioned(
+                                  top: 5,
+                                  right: 5,
+                                  child: Container(
+                                    width: 10,
+                                    height: 10,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.orange,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -191,10 +277,16 @@ class _HomePageState extends State<HomePage> {
                       decoration: InputDecoration(
                         hintText: _searchHint(_selectedBusinessType),
                         hintStyle: TextStyle(color: Colors.grey.shade400),
-                        prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          color: Colors.grey,
+                        ),
                         suffixIcon: _searchController.text.isNotEmpty
                             ? IconButton(
-                                icon: const Icon(Icons.clear, color: Colors.grey),
+                                icon: const Icon(
+                                  Icons.clear,
+                                  color: Colors.grey,
+                                ),
                                 onPressed: () {
                                   _searchController.clear();
                                   _load();
@@ -203,10 +295,24 @@ class _HomePageState extends State<HomePage> {
                             : null,
                         filled: true,
                         fillColor: Colors.grey.shade100,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 0,
+                          horizontal: 16,
+                        ),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(20),
                           borderSide: BorderSide.none,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          borderSide: BorderSide.none,
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          borderSide: const BorderSide(
+                            color: AppColors.orange,
+                            width: 1.5,
+                          ),
                         ),
                       ),
                     ),
@@ -216,25 +322,59 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
 
-            // Business type tabs
+            // Business type icon grid
             SliverToBoxAdapter(
-              child: SizedBox(
-                height: 44,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  itemCount: _businessTypes.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (_, i) {
-                    final opt = _businessTypes[i];
-                    final selected = _selectedBusinessType == opt.value;
-                    return _BusinessTypeTab(
-                      label: opt.label,
-                      icon: opt.icon,
-                      selected: selected,
-                      onTap: () => _selectBusinessType(opt.value),
-                    );
-                  },
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Categorías',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        color: Color(0xFF1F2937),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    FutureBuilder<List<BusinessTypeInfo>>(
+                      future: _businessTypesFuture,
+                      builder: (_, snap) {
+                        final types = snap.data ?? [];
+                        // "Todos" siempre primero, luego los tipos de la DB
+                        return SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              _CategoryIconTile(
+                                label: 'Todos',
+                                icon: Icons.apps_rounded,
+                                selected: _selectedBusinessType == null,
+                                bg: const Color(0xFFEFF4FF),
+                                iconColor: AppColors.riderBlue,
+                                onTap: () => _selectBusinessType(null),
+                              ),
+                              ...types.map((t) {
+                                final selected = _selectedBusinessType == t.value;
+                                return Padding(
+                                  padding: const EdgeInsets.only(left: 8),
+                                  child: _CategoryIconTile(
+                                    label: t.label,
+                                    icon: _resolveIcon(t.flutterIcon),
+                                    selected: selected,
+                                    bg: _parseHex(t.bgColor),
+                                    iconColor: _parseHex(t.iconColor),
+                                    onTap: () => _selectBusinessType(t.value),
+                                  ),
+                                );
+                              }),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -248,36 +388,34 @@ class _HomePageState extends State<HomePage> {
                 builder: (_, snap) {
                   final categories = snap.data ?? [];
                   if (categories.isEmpty) return const SizedBox.shrink();
-                  return SizedBox(
-                    height: 40,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      itemCount: categories.length + 1,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
-                      itemBuilder: (_, i) {
-                        if (i == 0) {
-                          final selected = _selectedCategory == null;
-                          return _CategoryChip(
-                            label: 'Todos',
-                            selected: selected,
-                            onTap: () {
-                              _selectedCategory = null;
-                              _load();
-                            },
-                          );
-                        }
-                        final cat = categories[i - 1];
-                        final selected = _selectedCategory == cat.id;
-                        return _CategoryChip(
-                          label: '${cat.icon ?? ''} ${cat.name}'.trim(),
-                          selected: selected,
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      children: [
+                        _CategoryChip(
+                          label: 'Todos',
+                          selected: _selectedCategory == null,
                           onTap: () {
-                            _selectedCategory = selected ? null : cat.id;
+                            _selectedCategory = null;
                             _load();
                           },
-                        );
-                      },
+                        ),
+                        ...categories.map((cat) {
+                          final selected = _selectedCategory == cat.id;
+                          return Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: _CategoryChip(
+                              label: '${cat.icon ?? ''} ${cat.name}'.trim(),
+                              selected: selected,
+                              onTap: () {
+                                _selectedCategory = selected ? null : cat.id;
+                                _load();
+                              },
+                            ),
+                          );
+                        }),
+                      ],
                     ),
                   );
                 },
@@ -292,7 +430,9 @@ class _HomePageState extends State<HomePage> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Text(
                   _sectionLabel(_selectedBusinessType),
-                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ),
@@ -304,10 +444,12 @@ class _HomePageState extends State<HomePage> {
               builder: (context, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const SliverToBoxAdapter(
-                    child: Center(child: Padding(
-                      padding: EdgeInsets.all(40),
-                      child: CircularProgressIndicator(),
-                    )),
+                    child: Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(40),
+                        child: CircularProgressIndicator(),
+                      ),
+                    ),
                   );
                 }
                 if (snap.hasError) {
@@ -317,11 +459,21 @@ class _HomePageState extends State<HomePage> {
                         padding: const EdgeInsets.all(32),
                         child: Column(
                           children: [
-                            Icon(Icons.wifi_off, size: 48, color: Colors.grey.shade400),
+                            Icon(
+                              Icons.wifi_off,
+                              size: 48,
+                              color: Colors.grey.shade400,
+                            ),
                             const SizedBox(height: 12),
-                            Text('No se pudo cargar', style: TextStyle(color: Colors.grey.shade600)),
+                            Text(
+                              'No se pudo cargar',
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
                             const SizedBox(height: 12),
-                            TextButton(onPressed: _load, child: const Text('Reintentar')),
+                            TextButton(
+                              onPressed: _load,
+                              child: const Text('Reintentar'),
+                            ),
                           ],
                         ),
                       ),
@@ -345,21 +497,25 @@ class _HomePageState extends State<HomePage> {
                 return SliverPadding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, i) => Padding(
+                    delegate: SliverChildBuilderDelegate((context, i) {
+                      final shop = _statusOverrides.containsKey(list[i].id)
+                          ? list[i].copyWith(
+                              status: _statusOverrides[list[i].id],
+                            )
+                          : list[i];
+                      return Padding(
                         padding: const EdgeInsets.only(bottom: 16),
                         child: _StoreCard(
-                          shop: list[i],
+                          shop: shop,
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => ShopPage(shopId: list[i].id),
+                              builder: (_) => ShopPage(shopId: shop.id),
                             ),
                           ),
                         ),
-                      ),
-                      childCount: list.length,
-                    ),
+                      );
+                    }, childCount: list.length),
                   ),
                 );
               },
@@ -373,18 +529,22 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-// ── Business Type Tab ─────────────────────────────────────────────────────────
+// ── Category Icon Tile ────────────────────────────────────────────────────────
 
-class _BusinessTypeTab extends StatelessWidget {
+class _CategoryIconTile extends StatelessWidget {
   final String label;
   final IconData icon;
   final bool selected;
+  final Color bg;
+  final Color iconColor;
   final VoidCallback onTap;
 
-  const _BusinessTypeTab({
+  const _CategoryIconTile({
     required this.label,
     required this.icon,
     required this.selected,
+    required this.bg,
+    required this.iconColor,
     required this.onTap,
   });
 
@@ -393,28 +553,52 @@ class _BusinessTypeTab extends StatelessWidget {
     final theme = Theme.of(context);
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? theme.colorScheme.primary : Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(22),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
+      child: SizedBox(
+        width: 76,
+        child: Column(
           children: [
-            Icon(
-              icon,
-              size: 15,
-              color: selected ? Colors.white : Colors.grey.shade600,
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                color: selected ? theme.colorScheme.primary : bg,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: selected
+                    ? [
+                        BoxShadow(
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.35,
+                          ),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Icon(
+                icon,
+                size: 26,
+                color: selected ? Colors.white : iconColor,
+              ),
             ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                color: selected ? Colors.white : Colors.grey.shade700,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
+            const SizedBox(height: 7),
+            SizedBox(
+              height: 28,
+              child: Center(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: selected
+                        ? theme.colorScheme.primary
+                        : const Color(0xFF4B5563),
+                    letterSpacing: -0.3,
+                  ),
+                ),
               ),
             ),
           ],
@@ -431,7 +615,11 @@ class _CategoryChip extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  const _CategoryChip({required this.label, required this.selected, required this.onTap});
+  const _CategoryChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -462,9 +650,16 @@ class _CategoryChip extends StatelessWidget {
 
 IconData _placeholderIcon(String businessType) {
   switch (businessType) {
-    case 'supermarket': return Icons.local_grocery_store;
-    case 'minimarket':  return Icons.store;
-    default:            return Icons.shop;
+    case 'supermarket':
+      return Icons.local_grocery_store;
+    case 'minimarket':
+      return Icons.storefront;
+    case 'cafe':
+      return Icons.local_cafe;
+    case 'pharmacy':
+      return Icons.local_pharmacy;
+    default:
+      return Icons.restaurant_menu;
   }
 }
 
@@ -494,56 +689,127 @@ class _StoreCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Image
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-              child: shop.imageUrl != null
-                  ? CachedNetworkImage(
-                      imageUrl: shop.imageUrl!,
-                      height: 160,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => Container(
-                        height: 160,
-                        color: Colors.grey.shade200,
-                        child: const Center(child: CircularProgressIndicator()),
-                      ),
-                      errorWidget: (_, __, ___) => _PlaceholderImage(
-                        height: 160,
-                        icon: _placeholderIcon(shop.businessType),
-                      ),
-                    )
-                  : _PlaceholderImage(
-                      height: 160,
-                      icon: _placeholderIcon(shop.businessType),
+            // Image with overlays
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(16),
+                  ),
+                  child: shop.imageUrl != null
+                      ? CachedNetworkImage(
+                          imageUrl: shop.imageUrl!,
+                          height: 160,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) => Container(
+                            height: 160,
+                            color: Colors.grey.shade200,
+                            child: const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          ),
+                          errorWidget: (_, __, ___) => _PlaceholderImage(
+                            height: 160,
+                            icon: _placeholderIcon(shop.businessType),
+                          ),
+                        )
+                      : _PlaceholderImage(
+                          height: 160,
+                          icon: _placeholderIcon(shop.businessType),
+                        ),
+                ),
+                // Status badge — top left
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
                     ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.95),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: shop.isDisabled
+                            ? Colors.orange.shade200
+                            : (shop.isOpen
+                                  ? Colors.green.shade200
+                                  : Colors.grey.shade200),
+                      ),
+                    ),
+                    child: Text(
+                      shop.isDisabled
+                          ? 'SOLO EXPRESS'
+                          : (shop.isOpen ? 'ABIERTO' : 'CERRADO'),
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                        color: shop.isDisabled
+                            ? Colors.orange.shade700
+                            : (shop.isOpen
+                                  ? Colors.green.shade700
+                                  : Colors.grey.shade600),
+                      ),
+                    ),
+                  ),
+                ),
+                // Delivery time — bottom right
+                if (shop.deliveryMinutes != null)
+                  Positioned(
+                    bottom: 10,
+                    right: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.12),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.access_time_rounded,
+                            size: 12,
+                            color: AppColors.orange,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${shop.deliveryMinutes} min',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF111827),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
             ),
             Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          shop.name,
-                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      if (!shop.isOpen)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade200,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            'Cerrado',
-                            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                          ),
-                        ),
-                    ],
+                  Text(
+                    shop.name,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   if (shop.description != null) ...[
                     const SizedBox(height: 4),
@@ -560,20 +826,34 @@ class _StoreCard extends StatelessWidget {
                   Row(
                     children: [
                       if (shop.rating != null) ...[
-                        Icon(Icons.star, size: 14, color: Colors.amber.shade600),
+                        Icon(
+                          Icons.star,
+                          size: 14,
+                          color: Colors.amber.shade600,
+                        ),
                         const SizedBox(width: 3),
                         Text(
                           shop.rating!.toStringAsFixed(1),
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         const SizedBox(width: 12),
                       ],
                       if (shop.deliveryMinutes != null) ...[
-                        Icon(Icons.timer_outlined, size: 14, color: Colors.grey.shade500),
+                        Icon(
+                          Icons.timer_outlined,
+                          size: 14,
+                          color: Colors.grey.shade500,
+                        ),
                         const SizedBox(width: 3),
                         Text(
                           '${shop.deliveryMinutes} min',
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
                         ),
                         const SizedBox(width: 12),
                       ],

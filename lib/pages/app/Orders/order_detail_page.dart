@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../services/order_service.dart';
+import '../../../services/cart_service.dart';
+import '../Cart/cart_sheet.dart';
+import '../ratings/rating_sheet.dart';
 
 class OrderDetailPage extends StatefulWidget {
   final String orderId;
@@ -18,6 +21,31 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
   void initState() {
     super.initState();
     _future = _orderService.getOrder(widget.orderId);
+  }
+
+  void _reorder(DeliveryOrder order) {
+    if (order.items.isEmpty) return;
+    final cart = CartService();
+    cart.clear();
+    for (final item in order.items) {
+      cart.addItem(
+        OrderItem(
+          menuItemId: item.menuItemId,
+          name: item.name,
+          price: item.unitPrice,
+          size: item.size,
+          quantity: item.quantity,
+        ),
+        order.shopId,
+        order.shopName ?? 'Restaurante',
+      );
+    }
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const CartSheet(),
+    );
   }
 
   Future<void> _cancel() async {
@@ -89,6 +117,8 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     final theme = Theme.of(context);
     final (label, color) = _statusInfo(order.status);
     final canCancel = order.status == 'pendiente';
+    final canReorder = (order.status == 'entregado' || order.status == 'cancelado') && order.items.isNotEmpty;
+    final canRate = order.status == 'entregado';
 
     final steps = _buildSteps(order.status, order.deliveryType);
 
@@ -219,6 +249,37 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             ],
           ),
 
+          // Cancel reason banner
+          if (order.status == 'cancelado' && order.cancelReason != null && order.cancelReason!.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline, color: Colors.red.shade700, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Motivo de cancelación', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.red.shade700, fontSize: 13)),
+                        const SizedBox(height: 4),
+                        Text(order.cancelReason!, style: TextStyle(color: Colors.red.shade900, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
           if (canCancel) ...[
             const SizedBox(height: 32),
             SizedBox(
@@ -247,6 +308,40 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                   'Cancelar pedido',
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
+              ),
+            ),
+          ],
+
+          if (canRate) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => showRatingSheet(context, order.id),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFF59E0B),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.star_rounded),
+                label: const Text('Calificar pedido', style: TextStyle(fontWeight: FontWeight.w600)),
+              ),
+            ),
+          ],
+
+          if (canReorder) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _reorder(order),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.replay_outlined),
+                label: const Text('Volver a pedir', style: TextStyle(fontWeight: FontWeight.w600)),
               ),
             ),
           ],

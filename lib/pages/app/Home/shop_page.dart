@@ -35,11 +35,20 @@ class _ShopPageState extends State<ShopPage> {
   void _onCartChanged() => setState(() {});
 
   void _addItem(MenuItem item, String shopName) {
-    _cart.addItem(
-      OrderItem(menuItemId: item.id, name: item.name, price: item.price),
+    final added = _cart.addItem(
+      OrderItem(menuItemId: item.id, name: item.name, price: item.price, size: item.size),
       widget.shopId,
       shopName,
     );
+    if (!added) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Bolsa llena (${_cart.totalSize}/${_cart.maxBagSize} pts). Quitá algún producto para agregar este.'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   void _removeItem(MenuItem item) {
@@ -167,6 +176,32 @@ class _ShopPageState extends State<ShopPage> {
           ),
         ),
 
+        // Banner modo deshabilitado
+        if (shop.isDisabled)
+          SliverToBoxAdapter(
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.flash_on, color: Colors.orange.shade700, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Este negocio solo acepta pedidos Express. Podés agregar productos al carrito.',
+                      style: TextStyle(fontSize: 13, color: Colors.orange.shade800),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
         // Info row
         SliverToBoxAdapter(
           child: Padding(
@@ -206,7 +241,7 @@ class _ShopPageState extends State<ShopPage> {
         ),
 
         // Menu sections
-        for (final entry in grouped.entries) ...[
+        for (final entry in grouped.entries.toList()) ...[
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),

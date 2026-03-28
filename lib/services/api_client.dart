@@ -85,6 +85,21 @@ class ApiClient {
     return _handle(res);
   }
 
+  Future<dynamic> postMultipart(String path, String filePath, String fieldName) async {
+    final token = await getToken();
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$path'));
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    request.files.add(await http.MultipartFile.fromPath(fieldName, filePath));
+    final streamed = await request.send();
+    final body = jsonDecode(await streamed.stream.bytesToString());
+    if (streamed.statusCode >= 200 && streamed.statusCode < 300) return body;
+    final message = body['message'] ?? 'Error desconocido';
+    throw ApiException(
+      message is List ? message.join(', ') : message.toString(),
+      streamed.statusCode,
+    );
+  }
+
   Future<dynamic> delete(String path) async {
     final res = await http.delete(
       Uri.parse('$baseUrl$path'),

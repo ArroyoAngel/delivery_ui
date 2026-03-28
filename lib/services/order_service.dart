@@ -43,12 +43,14 @@ class OrderItem {
   final String menuItemId;
   final String name;
   final double price;
+  final int size;
   int quantity;
 
   OrderItem({
     required this.menuItemId,
     required this.name,
     required this.price,
+    this.size = 1,
     this.quantity = 1,
   });
 
@@ -59,20 +61,25 @@ class OrderItem {
 }
 
 class DeliveryOrderItem {
+  final String menuItemId;
   final String name;
   final int quantity;
   final double unitPrice;
+  final int size;
 
   DeliveryOrderItem({
+    required this.menuItemId,
     required this.name,
     required this.quantity,
     required this.unitPrice,
+    this.size = 1,
   });
 
   double get subtotal => unitPrice * quantity;
 
   factory DeliveryOrderItem.fromJson(Map<String, dynamic> j) =>
       DeliveryOrderItem(
+        menuItemId: (j['menu_item_id'] ?? j['menuItemId'] ?? '').toString(),
         name: (j['item_name'] ?? j['name'] ?? 'Producto').toString(),
         quantity: int.tryParse((j['quantity'] ?? '1').toString()) ?? 1,
         unitPrice:
@@ -80,6 +87,7 @@ class DeliveryOrderItem {
               (j['unit_price'] ?? j['unitPrice'] ?? '0').toString(),
             ) ??
             0.0,
+        size: (j['size'] as num?)?.toInt() ?? 1,
       );
 }
 
@@ -97,6 +105,7 @@ class DeliveryOrder {
   final DateTime createdAt;
   final List<DeliveryOrderItem> items;
   final String? paymentReference;
+  final String? cancelReason;
 
   DeliveryOrder({
     required this.id,
@@ -112,6 +121,7 @@ class DeliveryOrder {
     required this.createdAt,
     this.items = const [],
     this.paymentReference,
+    this.cancelReason,
   });
 
   static List<DeliveryOrderItem> _parseItems(dynamic rawItems) {
@@ -156,6 +166,8 @@ class DeliveryOrder {
     items: _parseItems(j['items']),
     paymentReference:
         j['paymentReference'] as String? ?? j['payment_reference'] as String?,
+    cancelReason:
+        j['cancelReason'] as String? ?? j['cancel_reason'] as String?,
   );
 }
 
@@ -188,11 +200,13 @@ class OrderService {
     double? deliveryLng,
     String? notes,
     String? couponCode,
+    String paymentMethod = 'qr',
   }) async {
     final body = <String, dynamic>{
       'shopId': shopId,
       'items': items.map((e) => e.toJson()).toList(),
       'deliveryType': deliveryType,
+      'paymentMethod': paymentMethod,
     };
     if (deliveryAddress != null) body['deliveryAddress'] = deliveryAddress;
     if (deliveryLat != null) body['deliveryLat'] = deliveryLat;
@@ -225,9 +239,11 @@ class OrderService {
     String? deliveryAddress,
     double? deliveryLat,
     double? deliveryLng,
+    String paymentMethod = 'qr',
   }) async {
     final body = <String, dynamic>{
       'orders': shops.map((r) => r.toJson()).toList(),
+      'paymentMethod': paymentMethod,
       if (deliveryAddress != null) 'deliveryAddress': deliveryAddress,
       if (deliveryLat != null) 'deliveryLat': deliveryLat,
       if (deliveryLng != null) 'deliveryLng': deliveryLng,

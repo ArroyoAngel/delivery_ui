@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../services/api_client.dart';
 import '../../../services/rider_service.dart';
+import '../ratings/rating_sheet.dart';
 import 'rider_map_page.dart';
 
 class ActiveDeliveryPage extends StatefulWidget {
@@ -16,6 +18,7 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
   String? _error;
   final Set<String> _delivering = {};
   final Set<String> _pickingUp = {};
+  final Set<String> _cancelling = {};
 
   @override
   void initState() {
@@ -33,6 +36,69 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
     }
   }
 
+  Future<void> _showCancelDialog(String orderId, String shopName) async {
+    final controller = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancelar pedido'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Pedido de $shopName', style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 12),
+            const Text('¿Por qué cancelás este pedido?'),
+            const SizedBox(height: 8),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLines: 3,
+              maxLength: 300,
+              decoration: const InputDecoration(
+                hintText: 'Ej: Producto agotado, no pude llegar...',
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.all(10),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Atrás')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Cancelar pedido'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final reason = controller.text.trim();
+    setState(() => _cancelling.add(orderId));
+    try {
+      await _service.cancelOrder(orderId, reason);
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Pedido cancelado. El cliente fue notificado.'),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _cancelling.remove(orderId));
+    }
+  }
+
   Future<void> _markPickedUp(String orderId) async {
     setState(() => _pickingUp.add(orderId));
     try {
@@ -47,7 +113,9 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
           ),
         );
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[_markPickedUp] ERROR: $e');
+      debugPrint('[_markPickedUp] STACK: $st');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating),
@@ -71,11 +139,16 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
             behavior: SnackBarBehavior.floating,
           ),
         );
+        // Ofrecer calificar al cliente
+        await showRatingSheet(context, orderId);
       }
-    } catch (e) {
+    } catch (e, st) {
+      final code = e is ApiException ? e.statusCode : '?';
+      debugPrint('[_markDelivered] ERROR $code: $e');
+      debugPrint('[_markDelivered] STACK: $st');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating),
+          SnackBar(content: Text('[$code] ${e.toString()}'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating),
         );
       }
     } finally {
@@ -260,7 +333,9 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
                         key: ValueKey(o.orderId),
                         stop: o,
                         pickingUp: _pickingUp.contains(o.orderId),
+                        cancelling: _cancelling.contains(o.orderId),
                         onPickedUp: () => _markPickedUp(o.orderId),
+                        onCancel: () => _showCancelDialog(o.orderId, o.shopName),
                       )),
                       const SizedBox(height: 16),
                     ],
@@ -272,7 +347,9 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
                       ...toDeliver.map((o) => _StopCard(
                         stop: o,
                         delivering: _delivering.contains(o.orderId),
+                        cancelling: _cancelling.contains(o.orderId),
                         onMarkDelivered: () => _markDelivered(o.orderId),
+                        onCancel: () => _showCancelDialog(o.orderId, o.shopName),
                       )),
                       const SizedBox(height: 16),
                     ],
@@ -298,13 +375,17 @@ class _ActiveDeliveryPageState extends State<ActiveDeliveryPage> {
 class _PickupCard extends StatelessWidget {
   final RiderOrderStop stop;
   final bool pickingUp;
+  final bool cancelling;
   final VoidCallback onPickedUp;
+  final VoidCallback onCancel;
 
   const _PickupCard({
     super.key,
     required this.stop,
     required this.pickingUp,
     required this.onPickedUp,
+    required this.onCancel,
+    this.cancelling = false,
   });
 
   @override
@@ -361,6 +442,30 @@ class _PickupCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (stop.hasSpecialInstructions) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.shade300),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline, size: 16, color: Colors.amber.shade800),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          stop.riderInstructions!,
+                          style: TextStyle(fontSize: 12, color: Colors.amber.shade900),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               if (stop.items.isNotEmpty) ...[
                 const Divider(height: 14),
                 ...stop.items.map((item) => Text(
@@ -373,8 +478,17 @@ class _PickupCard extends StatelessWidget {
                 children: [
                   Text('Total: Bs ${stop.total.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                   const Spacer(),
+                  IconButton(
+                    onPressed: (pickingUp || cancelling) ? null : onCancel,
+                    icon: cancelling
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red))
+                        : const Icon(Icons.cancel_outlined, color: Colors.red),
+                    tooltip: 'Cancelar pedido',
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  const SizedBox(width: 4),
                   ElevatedButton.icon(
-                    onPressed: pickingUp ? null : onPickedUp,
+                    onPressed: (pickingUp || cancelling) ? null : onPickedUp,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue.shade600,
                       foregroundColor: Colors.white,
@@ -400,13 +514,17 @@ class _StopCard extends StatelessWidget {
   final RiderOrderStop stop;
   final bool delivering;
   final bool delivered;
+  final bool cancelling;
   final VoidCallback? onMarkDelivered;
+  final VoidCallback? onCancel;
 
   const _StopCard({
     required this.stop,
     this.delivering = false,
     this.delivered = false,
+    this.cancelling = false,
     this.onMarkDelivered,
+    this.onCancel,
   });
 
   @override
@@ -434,6 +552,7 @@ class _StopCard extends StatelessWidget {
               label: 'Recogido en',
               title: stop.shopName,
               subtitle: stop.shopAddress,
+              rating: stop.shopRating,
             ),
             const Padding(
               padding: EdgeInsets.only(left: 11),
@@ -445,7 +564,34 @@ class _StopCard extends StatelessWidget {
               iconColor: Colors.orange,
               label: 'Entregar a',
               title: stop.clientAddress ?? 'Sin dirección especificada',
+              rating: stop.clientRating,
             ),
+
+            // Banner instrucciones especiales (negocio sin membresía)
+            if (stop.hasSpecialInstructions) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade300),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, size: 16, color: Colors.amber.shade800),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        stop.riderInstructions!,
+                        style: TextStyle(fontSize: 12, color: Colors.amber.shade900),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             // Items del pedido
             if (stop.items.isNotEmpty) ...[
@@ -484,9 +630,18 @@ class _StopCard extends StatelessWidget {
                       ],
                     ),
                   )
-                else
+                else ...[
+                  IconButton(
+                    onPressed: (delivering || cancelling) ? null : onCancel,
+                    icon: cancelling
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red))
+                        : const Icon(Icons.cancel_outlined, color: Colors.red),
+                    tooltip: 'Cancelar pedido',
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  const SizedBox(width: 4),
                   ElevatedButton(
-                    onPressed: delivering ? null : onMarkDelivered,
+                    onPressed: (delivering || cancelling) ? null : onMarkDelivered,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
@@ -497,6 +652,7 @@ class _StopCard extends StatelessWidget {
                         ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                         : const Text('Entregado', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                   ),
+                ],
               ],
             ),
           ],
@@ -512,8 +668,9 @@ class _StepRow extends StatelessWidget {
   final String label;
   final String title;
   final String? subtitle;
+  final double rating;
 
-  const _StepRow({required this.icon, required this.iconColor, required this.label, required this.title, this.subtitle});
+  const _StepRow({required this.icon, required this.iconColor, required this.label, required this.title, this.subtitle, this.rating = 5.0});
 
   @override
   Widget build(BuildContext context) {
@@ -527,7 +684,14 @@ class _StepRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              Row(
+                children: [
+                  Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14))),
+                  const Icon(Icons.star_rounded, size: 13, color: Color(0xFFF59E0B)),
+                  const SizedBox(width: 2),
+                  Text(rating.toStringAsFixed(1), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF1F2937))),
+                ],
+              ),
               if (subtitle != null)
                 Text(subtitle!, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
             ],

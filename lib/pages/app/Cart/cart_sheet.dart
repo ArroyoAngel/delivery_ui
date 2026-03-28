@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../services/api_client.dart';
 import '../../../services/cart_service.dart';
 import '../../../services/order_service.dart';
 import '../../../services/shop_service.dart';
@@ -21,7 +22,10 @@ class _CartSheetState extends State<CartSheet> {
 
   bool _isOrdering = false;
   String _deliveryType = 'delivery';
-  double? _shopDeliveryFee;
+  String _paymentMethod = 'cash'; // 'qr' | 'cash'
+  bool _shopDisabled = false;
+  double _configDeliveryFee = 5.0;
+  double _configExpressFee = 5.0;
 
   List<UserAddress> _addresses = [];
   UserAddress? _selectedAddress;
@@ -42,6 +46,23 @@ class _CartSheetState extends State<CartSheet> {
       _loadDeliveryFee();
     }
     _loadAddresses();
+    _loadConfig();
+  }
+
+  Future<void> _loadConfig() async {
+    try {
+      final data = await ApiClient().get('/config') as List;
+      final map = <String, String>{
+        for (final e in data.cast<Map<String, dynamic>>())
+          e['key'] as String: e['value'] as String,
+      };
+      if (mounted) {
+        setState(() {
+          _configDeliveryFee = double.tryParse(map['delivery_fee'] ?? '5') ?? 5.0;
+          _configExpressFee  = double.tryParse(map['express_fee']  ?? '5') ?? 5.0;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadAddresses() async {
@@ -120,19 +141,27 @@ class _CartSheetState extends State<CartSheet> {
 
   Future<void> _loadDeliveryFee() async {
     try {
-      final s = await _shopService.getShop(
-        _cart.shopIds.first,
-      );
-      if (mounted) setState(() => _shopDeliveryFee = s.deliveryFee ?? 0);
-    } catch (_) {}
+      final shopId = _cart.shopIds.first;
+      debugPrint('[CartSheet] cargando shop: $shopId');
+      final s = await _shopService.getShop(shopId);
+      debugPrint('[CartSheet] shop.name=${s.name} shop.status=${s.status} shop.isDisabled=${s.isDisabled}');
+      if (mounted) {
+        setState(() {
+          _shopDisabled = s.isDisabled;
+          if (s.isDisabled) _deliveryType = 'express';
+        });
+        debugPrint('[CartSheet] _shopDisabled=$_shopDisabled _deliveryType=$_deliveryType');
+      }
+    } catch (e) {
+      debugPrint('[CartSheet] ERROR en _loadDeliveryFee: $e');
+    }
   }
 
   double get _subtotal => _cart.subtotal;
 
   double get _deliveryFee {
-    final base = _shopDeliveryFee ?? 0;
-    if (_deliveryType == 'express') return base * 2;
-    if (_deliveryType == 'delivery') return base;
+    if (_deliveryType == 'express') return _configExpressFee;
+    if (_deliveryType == 'delivery') return _configDeliveryFee;
     return 0;
   }
 
@@ -199,6 +228,7 @@ class _CartSheetState extends State<CartSheet> {
       deliveryAddress: _selectedAddress?.fullAddress,
       deliveryLat: _selectedAddress?.latitude,
       deliveryLng: _selectedAddress?.longitude,
+      paymentMethod: _paymentMethod,
     );
 
     debugPrint(
@@ -208,17 +238,28 @@ class _CartSheetState extends State<CartSheet> {
     if (!mounted) return;
     _cart.clear();
     Navigator.pop(context);
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PaymentPage(
-          groupId: result.groupId,
-          amount: result.total,
-          shopName: shopNames.join(' + '),
-          paymentReference: result.paymentReference,
+
+    if (_paymentMethod == 'cash') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pedido registrado. Paga al repartidor en efectivo.'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
         ),
-      ),
-    );
+      );
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PaymentPage(
+            groupId: result.groupId,
+            amount: result.total,
+            shopName: shopNames.join(' + '),
+            paymentReference: result.paymentReference,
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _checkoutSingleShop() async {
@@ -234,17 +275,23 @@ class _CartSheetState extends State<CartSheet> {
       deliveryLat: _needsAddress ? _selectedAddress?.latitude : null,
       deliveryLng: _needsAddress ? _selectedAddress?.longitude : null,
       couponCode: _appliedCouponCode,
+      paymentMethod: _paymentMethod,
     );
 
     if (!mounted) return;
-    _cart.clearShop(shopId); // Limpiar carrito al confirmar
+    _cart.clearShop(shopId);
     Navigator.pop(context);
 
-    if (_deliveryType == 'recogida') {
+    if (_deliveryType == 'recogida' || _paymentMethod == 'cash') {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Pedido registrado. Te avisaremos cuando esté listo.'),
+        SnackBar(
+          content: Text(
+            _paymentMethod == 'cash'
+                ? 'Pedido registrado. Paga al repartidor en efectivo.'
+                : 'Pedido registrado. Te avisaremos cuando esté listo.',
+          ),
           backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     } else {
@@ -318,6 +365,79 @@ class _CartSheetState extends State<CartSheet> {
               ],
             ),
           ),
+
+          // Indicador de capacidad de bolsa
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Builder(builder: (context) {
+              final used = _cart.totalSize;
+              final max = _cart.maxBagSize;
+              final pct = (used / max).clamp(0.0, 1.0);
+              final isFull = used >= max;
+              return Row(
+                children: [
+                  Icon(
+                    isFull ? Icons.shopping_bag : Icons.shopping_bag_outlined,
+                    size: 14,
+                    color: isFull ? Colors.red : Colors.grey[600],
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: pct,
+                        minHeight: 5,
+                        backgroundColor: Colors.grey.shade200,
+                        valueColor: AlwaysStoppedAnimation(
+                          isFull ? Colors.red : pct > 0.7 ? Colors.orange : Colors.green,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$used/$max pts',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isFull ? Colors.red : Colors.grey[600],
+                      fontWeight: isFull ? FontWeight.w700 : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              );
+            }),
+          ),
+
+          // Banner negocio sin membresía
+          if (!isMulti && _shopDisabled)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.shade300),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.flash_on, color: Colors.orange.shade700, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Este negocio solo acepta pedidos Express.',
+                        style: TextStyle(
+                          color: Colors.orange.shade800,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
 
           // Multi-shop banner
           if (isMulti)
@@ -401,11 +521,21 @@ class _CartSheetState extends State<CartSheet> {
                     ...byShop[shopId]!.map(
                       (e) => _CartItemRow(
                         entry: e,
-                        onAdd: () => _cart.addItem(
-                          e.item,
-                          e.shopId,
-                          e.shopName,
-                        ),
+                        onAdd: () {
+                          final added = _cart.addItem(e.item, e.shopId, e.shopName);
+                          if (!added) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Bolsa llena (${_cart.totalSize}/${_cart.maxBagSize} pts). Quitá algún producto primero.',
+                                ),
+                                backgroundColor: Colors.orange,
+                                behavior: SnackBarBehavior.floating,
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        },
                         onRemove: () => _cart.removeItem(e.item.menuItemId),
                       ),
                     ),
@@ -424,9 +554,9 @@ class _CartSheetState extends State<CartSheet> {
                   child: _DeliveryChip(
                     label: 'Delivery',
                     icon: Icons.delivery_dining,
-                    selected: !isMulti && _deliveryType == 'delivery',
-                    disabled: isMulti,
-                    onTap: isMulti
+                    selected: !isMulti && !_shopDisabled && _deliveryType == 'delivery',
+                    disabled: isMulti || _shopDisabled,
+                    onTap: (isMulti || _shopDisabled)
                         ? null
                         : () => setState(() => _deliveryType = 'delivery'),
                   ),
@@ -436,9 +566,9 @@ class _CartSheetState extends State<CartSheet> {
                   child: _DeliveryChip(
                     label: 'Recojo',
                     icon: Icons.store,
-                    selected: !isMulti && _deliveryType == 'recogida',
-                    disabled: isMulti,
-                    onTap: isMulti
+                    selected: !isMulti && !_shopDisabled && _deliveryType == 'recogida',
+                    disabled: isMulti || _shopDisabled,
+                    onTap: (isMulti || _shopDisabled)
                         ? null
                         : () => setState(() => _deliveryType = 'recogida'),
                   ),
@@ -448,8 +578,9 @@ class _CartSheetState extends State<CartSheet> {
                   child: _DeliveryChip(
                     label: 'Express',
                     icon: Icons.electric_bolt,
-                    selected: isMulti || _deliveryType == 'express',
+                    selected: isMulti || _shopDisabled || _deliveryType == 'express',
                     color: Colors.orange.shade700,
+                    disabled: isMulti,
                     onTap: isMulti
                         ? null
                         : () => setState(() => _deliveryType = 'express'),
@@ -702,33 +833,26 @@ class _CartSheetState extends State<CartSheet> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        _deliveryType == 'express'
-                            ? 'Envío Express (×2)'
-                            : 'Envío',
+                        _deliveryType == 'express' ? 'Envío Express' : 'Envío',
                         style: TextStyle(
                           color: _deliveryType == 'express'
                               ? Colors.orange.shade700
                               : Colors.grey.shade600,
                         ),
                       ),
-                      _shopDeliveryFee == null
-                          ? Text(
-                              '—',
-                              style: TextStyle(color: Colors.grey.shade400),
-                            )
-                          : Text(
-                              _deliveryFee == 0
-                                  ? 'Gratis'
-                                  : 'Bs ${_deliveryFee.toStringAsFixed(2)}',
-                              style: TextStyle(
-                                color: _deliveryType == 'express'
-                                    ? Colors.orange.shade700
-                                    : null,
-                                fontWeight: _deliveryType == 'express'
-                                    ? FontWeight.w600
-                                    : null,
-                              ),
-                            ),
+                      Text(
+                        _deliveryFee == 0
+                            ? 'Gratis'
+                            : 'Bs ${_deliveryFee.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          color: _deliveryType == 'express'
+                              ? Colors.orange.shade700
+                              : null,
+                          fontWeight: _deliveryType == 'express'
+                              ? FontWeight.w600
+                              : null,
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -790,21 +914,33 @@ class _CartSheetState extends State<CartSheet> {
                     ],
                   ),
                 ],
-                if (!isMulti && _deliveryType != 'recogida') ...[
-                  const SizedBox(height: 6),
+                // Selector de método de pago (no aplica para recogida)
+                if (_deliveryType != 'recogida') ...[
+                  const SizedBox(height: 12),
                   Row(
                     children: [
-                      Icon(
-                        Icons.info_outline,
-                        size: 13,
-                        color: Colors.orange.shade700,
+                      Expanded(
+                        child: _PaymentChip(
+                          label: 'QR / Transferencia',
+                          icon: Icons.qr_code,
+                          selected: _paymentMethod == 'qr',
+                          onTap: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Pago con QR — Próximamente'),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          },
+                        ),
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Se requiere pago previo por transferencia',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.orange.shade700,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _PaymentChip(
+                          label: 'Efectivo',
+                          icon: Icons.payments_outlined,
+                          selected: _paymentMethod == 'cash',
+                          onTap: () => setState(() => _paymentMethod = 'cash'),
                         ),
                       ),
                     ],
@@ -1014,6 +1150,55 @@ class _Btn extends StatelessWidget {
           icon,
           size: 13,
           color: filled ? Colors.white : Colors.grey.shade600,
+        ),
+      ),
+    );
+  }
+}
+
+class _PaymentChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _PaymentChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? primary.withValues(alpha: 0.1) : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? primary : Colors.grey.shade300,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 16, color: selected ? primary : Colors.grey.shade500),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: selected ? primary : Colors.grey.shade600,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ],
         ),
       ),
     );

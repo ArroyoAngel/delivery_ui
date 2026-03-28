@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'api_client.dart';
 
 class ShopCategory {
@@ -29,6 +30,7 @@ class MenuItem {
   final String? imageUrl;
   final String? categoryName;
   final bool isAvailable;
+  final int size;
 
   MenuItem({
     required this.id,
@@ -38,6 +40,7 @@ class MenuItem {
     this.imageUrl,
     this.categoryName,
     required this.isAvailable,
+    this.size = 1,
   });
 
   factory MenuItem.fromJson(Map<String, dynamic> j) => MenuItem(
@@ -48,6 +51,7 @@ class MenuItem {
         imageUrl: j['image_url'] as String? ?? j['imageUrl'] as String?,
         categoryName: j['category_name'] as String? ?? j['categoryName'] as String?,
         isAvailable: j['is_available'] as bool? ?? j['isAvailable'] as bool? ?? true,
+        size: (j['size'] as num?)?.toInt() ?? 1,
       );
 }
 
@@ -63,6 +67,9 @@ class Shop {
   final bool isOpen;
   final String businessType;
   final List<MenuItem> menu;
+  final String status; // 'active' | 'disabled'
+
+  bool get isDisabled => status == 'disabled';
 
   Shop({
     required this.id,
@@ -76,9 +83,27 @@ class Shop {
     required this.isOpen,
     this.businessType = 'restaurant',
     this.menu = const [],
+    this.status = 'active',
   });
 
-  factory Shop.fromJson(Map<String, dynamic> j) => Shop(
+  Shop copyWith({String? status}) => Shop(
+        id: id,
+        name: name,
+        description: description,
+        imageUrl: imageUrl,
+        address: address,
+        rating: rating,
+        deliveryMinutes: deliveryMinutes,
+        deliveryFee: deliveryFee,
+        isOpen: isOpen,
+        businessType: businessType,
+        menu: menu,
+        status: status ?? this.status,
+      );
+
+  factory Shop.fromJson(Map<String, dynamic> j) {
+    debugPrint('[Shop.fromJson] id=${j['id']} name=${j['name']} status=${j['status']}');
+    return Shop(
         id: j['id'] as String,
         name: j['name'] as String,
         description: j['description'] as String?,
@@ -92,7 +117,9 @@ class Shop {
         isOpen: j['is_open'] as bool? ?? j['isOpen'] as bool? ?? true,
         businessType: j['business_type'] as String? ?? j['businessType'] as String? ?? 'restaurant',
         menu: _flattenMenu(j),
+        status: j['status'] as String? ?? 'active',
       );
+  }
 
   // El backend retorna menuCategories:[{name, items:[...]}] — lo aplanamos.
   static List<MenuItem> _flattenMenu(Map<String, dynamic> j) {
@@ -110,6 +137,39 @@ class Shop {
     }
     return result;
   }
+}
+
+class BusinessTypeInfo {
+  final String value;
+  final String label;
+  final int sortOrder;
+  final String serviceCategory;
+  final String? flutterIcon;
+  final String? bgColor;
+  final String? iconColor;
+  final String? webIcon;
+
+  const BusinessTypeInfo({
+    required this.value,
+    required this.label,
+    required this.sortOrder,
+    required this.serviceCategory,
+    this.flutterIcon,
+    this.bgColor,
+    this.iconColor,
+    this.webIcon,
+  });
+
+  factory BusinessTypeInfo.fromJson(Map<String, dynamic> j) => BusinessTypeInfo(
+        value: j['value'] as String,
+        label: j['label'] as String,
+        sortOrder: (j['sortOrder'] as num?)?.toInt() ?? 0,
+        serviceCategory: j['serviceCategory'] as String? ?? 'food',
+        flutterIcon: j['flutterIcon'] as String?,
+        bgColor: j['bgColor'] as String?,
+        iconColor: j['iconColor'] as String?,
+        webIcon: j['webIcon'] as String?,
+      );
 }
 
 class ShopService {
@@ -141,5 +201,10 @@ class ShopService {
     final query = businessType != null ? {'businessType': businessType} : null;
     final data = await _api.get('/shops/categories', query: query) as List;
     return data.map((e) => ShopCategory.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<List<BusinessTypeInfo>> getBusinessTypes() async {
+    final data = await _api.get('/shops/business-types') as List;
+    return data.map((e) => BusinessTypeInfo.fromJson(e as Map<String, dynamic>)).toList();
   }
 }
