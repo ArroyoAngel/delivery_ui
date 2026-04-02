@@ -77,7 +77,7 @@ flutter pub get
 flutter run -d emulator-5554
 
 # 3. Generar iconos (solo si cambiaste el icono)
-dart run flutter_launcher_icons
+dart run flutter_launcher_icons 2>&1
 
 # 4. Build APK firmado
 flutter build apk --release
