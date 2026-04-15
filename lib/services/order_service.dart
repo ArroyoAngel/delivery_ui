@@ -105,6 +105,7 @@ class DeliveryOrder {
   final DateTime createdAt;
   final List<DeliveryOrderItem> items;
   final String? paymentReference;
+  final String? paymentMethod;
   final String? cancelReason;
 
   DeliveryOrder({
@@ -121,6 +122,7 @@ class DeliveryOrder {
     required this.createdAt,
     this.items = const [],
     this.paymentReference,
+    this.paymentMethod,
     this.cancelReason,
   });
 
@@ -166,6 +168,8 @@ class DeliveryOrder {
     items: _parseItems(j['items']),
     paymentReference:
         j['paymentReference'] as String? ?? j['payment_reference'] as String?,
+    paymentMethod:
+        j['paymentMethod'] as String? ?? j['payment_method'] as String?,
     cancelReason:
         j['cancelReason'] as String? ?? j['cancel_reason'] as String?,
   );
@@ -282,5 +286,9 @@ class OrderService {
       ].contains(s);
     });
     return allConfirmed ? 'confirmado' : 'pendiente';
+  }
+
+  Future<void> uploadPaymentProof(String orderId, String filePath) async {
+    await _api.postMultipart('/orders/$orderId/payment-proof', filePath, 'file');
   }
 }

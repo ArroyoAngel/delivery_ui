@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'dart:math';
+import 'dart:convert';
+import '../../../services/zones_service.dart';
 
 typedef PickedLocation = ({double latitude, double longitude});
 
@@ -22,6 +25,9 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   MapboxMap? _mapboxMap;
   bool _isReady = false;
   bool _isLocating = false;
+  final _zonesService = ZonesService();
+  List<DeliveryZone> _zones = [];
+  bool _loadingZones = false;
 
   // Santa Cruz de la Sierra, Bolivia (default center)
   static final Position _defaultCenter = Position(-63.1812, -17.7863);
@@ -30,9 +36,91 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     _mapboxMap = mapboxMap;
     setState(() => _isReady = true);
 
+    // Cargar zonas y dibujarlas en el mapa
+    _loadAndDrawZones();
+
     // Si no hay ubicación inicial provista, intentar centrar en la ubicación actual.
     if (widget.initialLatitude == null || widget.initialLongitude == null) {
       _centerToCurrentLocation();
+    }
+  }
+
+  Future<void> _loadAndDrawZones() async {
+    if (_mapboxMap == null || _loadingZones) return;
+    setState(() => _loadingZones = true);
+    try {
+      final zones = await _zonesService.getAllZones();
+      if (mounted) {
+        setState(() => _zones = zones);
+        _drawZonesOnMap(zones);
+      }
+    } catch (e) {
+      debugPrint('[LocationPicker] Error loading zones: $e');
+    } finally {
+      if (mounted) setState(() => _loadingZones = false);
+    }
+  }
+
+  Future<void> _drawZonesOnMap(List<DeliveryZone> zones) async {
+    if (_mapboxMap == null || zones.isEmpty) return;
+
+    // Crear un GeoJSON FeatureCollection con círculos para cada zona
+    final features = <Map<String, dynamic>>[];
+    for (final zone in zones) {
+      // Crear un círculo aproximado (polígono de 32 puntos)
+      final points = <List<double>>[];
+      const earthRadiusKm = 6371.0;
+      const pi = 3.14159265359;
+      final radiusKm = zone.radiusMeters / 1000.0;
+      final latRad = zone.centerLat * pi / 180;
+
+      for (int i = 0; i < 32; i++) {
+        final angle = (2 * pi * i) / 32;
+        final lat = zone.centerLat +
+            (radiusKm / earthRadiusKm) * 180 / pi * cos(angle);
+        final lng = zone.centerLng +
+            (radiusKm / earthRadiusKm) * 180 / pi * sin(angle) / cos(latRad);
+        points.add([lng, lat]);
+      }
+      points.add(points[0]); // Cerrar el círculo
+
+      features.add({
+        'type': 'Feature',
+        'properties': {'name': zone.name, 'zoneId': zone.id},
+        'geometry': {
+          'type': 'Polygon',
+          'coordinates': [points],
+        },
+      });
+    }
+
+    final geoJson = {
+      'type': 'FeatureCollection',
+      'features': features,
+    };
+
+    // Convertir a JSON string
+    final geoJsonString = jsonEncode(geoJson);
+
+    // Agregar una fuente GeoJSON
+    try {
+      await _mapboxMap!.style.addSource(
+        GeoJsonSource(id: 'zones-source', data: geoJsonString),
+      );
+
+      // Agregar una capa de líneas (bordes con estilo segmentado)
+      await _mapboxMap!.style.addLayer(
+        LineLayer(
+          id: 'zones-outline',
+          sourceId: 'zones-source',
+          lineDasharray: [2, 2], // Líneas segmentadas
+          lineColor: Colors.orange.shade600.toARGB32(),
+          lineWidth: 2.0,
+          lineOpacity: 0.8,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[LocationPicker] Error drawing zones: $e');
     }
   }
 

@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
 import '../app/app_root.dart';
 import '../../services/auth_service.dart';
+import '../../services/address_service.dart';
+import 'address_selection_page.dart';
 
 class PhoneLoginPage extends StatefulWidget {
   const PhoneLoginPage({super.key});
@@ -65,15 +67,36 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
         smsCode: credential.smsCode ?? _otpCtrl.text.trim(),
       );
       if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const AppRoot()),
-        );
+        await _checkAndSelectAddress();
       }
     } catch (e) {
       if (mounted) _snack('Código incorrecto o expirado', Colors.red);
     } finally {
       if (mounted) setState(() => _verifying = false);
+    }
+  }
+
+  Future<void> _checkAndSelectAddress() async {
+    try {
+      final addressService = AddressService();
+      final addresses = await addressService.getAddresses();
+
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const AddressSelectionPage(isInitialSetup: true),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _snack('Error al cargar direcciones: $e', Colors.orange);
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AppRoot()),
+        );
+      }
     }
   }
 

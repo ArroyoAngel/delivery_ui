@@ -158,13 +158,35 @@ class _ShopPageState extends State<ShopPage> {
           expandedHeight: 220,
           pinned: true,
           flexibleSpace: FlexibleSpaceBar(
-            title: Text(
-              shop.name,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+            title: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Text(
+                shop.name,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                  fontStyle: FontStyle.italic,
+                  fontSize: 16,
+                  letterSpacing: -0.3,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            background: shop.imageUrl != null
+            background: shop.imageUrls.isNotEmpty
                 ? CachedNetworkImage(
-                    imageUrl: shop.imageUrl!,
+                    imageUrl: shop.imageUrls.first,
                     fit: BoxFit.cover,
                     errorWidget: (_, __, ___) =>
                         Container(color: Colors.grey.shade300),

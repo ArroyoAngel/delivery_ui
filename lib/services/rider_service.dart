@@ -16,6 +16,8 @@ class RiderOrderStop {
   final String? riderInstructions;
   final double shopRating;
   final double clientRating;
+  final String? paymentMethod;
+  final String? paidAt;
 
   RiderOrderStop({
     required this.orderId,
@@ -32,6 +34,8 @@ class RiderOrderStop {
     this.riderInstructions,
     this.shopRating = 5.0,
     this.clientRating = 5.0,
+    this.paymentMethod,
+    this.paidAt,
   });
 
   bool get hasSpecialInstructions =>
@@ -55,6 +59,8 @@ class RiderOrderStop {
             j['riderInstructions'] as String?,
         shopRating: double.tryParse((j['shop_rating'] ?? '').toString()) ?? 5.0,
         clientRating: double.tryParse((j['client_rating'] ?? '').toString()) ?? 5.0,
+        paymentMethod: j['payment_method'] as String? ?? j['paymentMethod'] as String? ?? 'qr',
+        paidAt: j['paid_at'] as String? ?? j['paidAt'] as String?,
       );
 }
 

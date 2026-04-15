@@ -4,6 +4,8 @@ import '../../../services/cart_service.dart';
 import '../../../services/order_service.dart';
 import '../../../services/shop_service.dart';
 import '../../../services/address_service.dart';
+import '../../../services/session_context.dart';
+import '../../../services/zones_service.dart';
 import '../Orders/payment_page.dart';
 import '../settings/addresses_page.dart';
 
@@ -19,6 +21,8 @@ class _CartSheetState extends State<CartSheet> {
   final _orderService = OrderService();
   final _shopService = ShopService();
   final _addressService = AddressService();
+  final _sessionContext = SessionContext();
+  final _zonesService = ZonesService();
 
   bool _isOrdering = false;
   String _deliveryType = 'delivery';
@@ -26,8 +30,12 @@ class _CartSheetState extends State<CartSheet> {
   bool _shopDisabled = false;
   double _configDeliveryFee = 5.0;
   double _configExpressFee = 5.0;
+  double _minCashOrderAmount = 0.0;
+  String? _configPlatformQrUrl;
+  double _totalCashOrders = 0.0;
 
   List<UserAddress> _addresses = [];
+  List<UserAddress> _filteredAddresses = [];
   UserAddress? _selectedAddress;
   bool _loadingAddresses = false;
 
@@ -47,6 +55,7 @@ class _CartSheetState extends State<CartSheet> {
     }
     _loadAddresses();
     _loadConfig();
+    _loadCashOrderHistory();
   }
 
   Future<void> _loadConfig() async {
@@ -58,26 +67,114 @@ class _CartSheetState extends State<CartSheet> {
       };
       if (mounted) {
         setState(() {
-          _configDeliveryFee = double.tryParse(map['delivery_fee'] ?? '5') ?? 5.0;
-          _configExpressFee  = double.tryParse(map['express_fee']  ?? '5') ?? 5.0;
+          _configDeliveryFee =
+              double.tryParse(map['delivery_fee'] ?? '5') ?? 5.0;
+          _configExpressFee = double.tryParse(map['express_fee'] ?? '5') ?? 5.0;
+          _configPlatformQrUrl = map['platform_qr_image_url'];
+          _minCashOrderAmount =
+              double.tryParse(map['min_cash_order_amount'] ?? '0') ?? 0.0;
         });
       }
     } catch (_) {}
   }
 
+  Future<void> _loadCashOrderHistory() async {
+    try {
+      final orders = await _orderService.getOrders();
+      double total = 0;
+      debugPrint('[CartSheet] Total órdenes cargadas: ${orders.length}');
+      for (final order in orders) {
+        // Sumar TODAS las órdenes completadas (entregadas o confirmadas)
+        // como indicador de confianza del cliente
+        if (order.status == 'entregado' || order.status == 'confirmado') {
+          total += order.total;
+          debugPrint(
+            '[CartSheet] Orden: ${order.id} - status=${order.status} total=${order.total} acumulado=$total',
+          );
+        }
+      }
+      debugPrint(
+        '[CartSheet] Total acumulado: $total, Min requerido: $_minCashOrderAmount, ¿Puede pagar en efectivo?: ${total >= _minCashOrderAmount}',
+      );
+      if (mounted) {
+        setState(() {
+          _totalCashOrders = total;
+          // Si no cumple el mínimo, automáticamente seleccionar QR
+          if (_totalCashOrders < _minCashOrderAmount &&
+              _minCashOrderAmount > 0) {
+            _paymentMethod = 'qr';
+            debugPrint('[CartSheet] Seleccionando QR automáticamente (no cumple mínimo)');
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('[CartSheet] ERROR en _loadCashOrderHistory: $e');
+    }
+  }
+
+  bool get _canPayCash =>
+      _totalCashOrders >= _minCashOrderAmount || _minCashOrderAmount == 0;
+
   Future<void> _loadAddresses() async {
     setState(() => _loadingAddresses = true);
     try {
       final list = await _addressService.getAddresses();
+      final sessionAddress = _sessionContext.selectedAddress;
+
+      // Detectar zona de la dirección de sesión
+      String? zoneId;
+      if (sessionAddress?.latitude != null &&
+          sessionAddress?.longitude != null) {
+        try {
+          final zone = await _zonesService.detectZone(
+            sessionAddress!.latitude!.toDouble(),
+            sessionAddress.longitude!.toDouble(),
+          );
+          zoneId = zone?.id;
+        } catch (_) {}
+      }
+
+      // Filtrar direcciones por zona
+      List<UserAddress> filtered = list;
+      if (zoneId != null) {
+        filtered = [];
+        for (final addr in list) {
+          if (addr.latitude != null && addr.longitude != null) {
+            try {
+              final zone = await _zonesService.detectZone(
+                addr.latitude!.toDouble(),
+                addr.longitude!.toDouble(),
+              );
+              if (zone?.id == zoneId) {
+                filtered.add(addr);
+              }
+            } catch (_) {}
+          }
+        }
+      }
+
       if (mounted) {
         setState(() {
           _addresses = list;
-          if (list.isNotEmpty) {
-            // Pre-seleccionar la dirección por defecto, o la primera
-            _selectedAddress = list.firstWhere(
-              (a) => a.isDefault,
-              orElse: () => list.first,
-            );
+          _filteredAddresses = filtered.isNotEmpty ? filtered : list;
+
+          if (_filteredAddresses.isNotEmpty) {
+            // Pre-seleccionar la dirección de sesión
+            if (sessionAddress != null) {
+              _selectedAddress = _filteredAddresses.firstWhere(
+                (a) => a.id == sessionAddress.id,
+                orElse: () => _filteredAddresses.firstWhere(
+                  (a) => a.isDefault,
+                  orElse: () => _filteredAddresses.first,
+                ),
+              );
+            } else {
+              // Fallback: dirección por defecto o primera
+              _selectedAddress = _filteredAddresses.firstWhere(
+                (a) => a.isDefault,
+                orElse: () => _filteredAddresses.first,
+              );
+            }
           }
         });
       }
@@ -103,7 +200,10 @@ class _CartSheetState extends State<CartSheet> {
     final code = _couponController.text.trim();
     if (code.isEmpty) return;
     if (_cart.shopIds.isEmpty) return;
-    setState(() { _validatingCoupon = true; _couponError = null; });
+    setState(() {
+      _validatingCoupon = true;
+      _couponError = null;
+    });
     try {
       final discount = await _orderService.validateCoupon(
         code: code,
@@ -144,13 +244,17 @@ class _CartSheetState extends State<CartSheet> {
       final shopId = _cart.shopIds.first;
       debugPrint('[CartSheet] cargando shop: $shopId');
       final s = await _shopService.getShop(shopId);
-      debugPrint('[CartSheet] shop.name=${s.name} shop.status=${s.status} shop.isDisabled=${s.isDisabled}');
+      debugPrint(
+        '[CartSheet] shop.name=${s.name} shop.status=${s.status} shop.isDisabled=${s.isDisabled}',
+      );
       if (mounted) {
         setState(() {
           _shopDisabled = s.isDisabled;
           if (s.isDisabled) _deliveryType = 'express';
         });
-        debugPrint('[CartSheet] _shopDisabled=$_shopDisabled _deliveryType=$_deliveryType');
+        debugPrint(
+          '[CartSheet] _shopDisabled=$_shopDisabled _deliveryType=$_deliveryType',
+        );
       }
     } catch (e) {
       debugPrint('[CartSheet] ERROR en _loadDeliveryFee: $e');
@@ -170,7 +274,7 @@ class _CartSheetState extends State<CartSheet> {
   Future<void> _checkout() async {
     // Validar dirección de entrega cuando se requiere
     if (_needsAddress && _selectedAddress == null) {
-      if (_addresses.isEmpty) {
+      if (_filteredAddresses.isEmpty && _addresses.isEmpty) {
         // No tiene ninguna dirección guardada — ir a agregar una
         final added = await Navigator.push<bool>(
           context,
@@ -256,6 +360,7 @@ class _CartSheetState extends State<CartSheet> {
             amount: result.total,
             shopName: shopNames.join(' + '),
             paymentReference: result.paymentReference,
+            platformQrImageUrl: _configPlatformQrUrl,
           ),
         ),
       );
@@ -303,6 +408,7 @@ class _CartSheetState extends State<CartSheet> {
             amount: order.total + order.platformFee,
             shopName: shopName,
             paymentReference: order.paymentReference,
+            platformQrImageUrl: _configPlatformQrUrl,
           ),
         ),
       );
@@ -369,44 +475,52 @@ class _CartSheetState extends State<CartSheet> {
           // Indicador de capacidad de bolsa
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Builder(builder: (context) {
-              final used = _cart.totalSize;
-              final max = _cart.maxBagSize;
-              final pct = (used / max).clamp(0.0, 1.0);
-              final isFull = used >= max;
-              return Row(
-                children: [
-                  Icon(
-                    isFull ? Icons.shopping_bag : Icons.shopping_bag_outlined,
-                    size: 14,
-                    color: isFull ? Colors.red : Colors.grey[600],
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: pct,
-                        minHeight: 5,
-                        backgroundColor: Colors.grey.shade200,
-                        valueColor: AlwaysStoppedAnimation(
-                          isFull ? Colors.red : pct > 0.7 ? Colors.orange : Colors.green,
+            child: Builder(
+              builder: (context) {
+                final used = _cart.totalSize;
+                final max = _cart.maxBagSize;
+                final pct = (used / max).clamp(0.0, 1.0);
+                final isFull = used >= max;
+                return Row(
+                  children: [
+                    Icon(
+                      isFull ? Icons.shopping_bag : Icons.shopping_bag_outlined,
+                      size: 14,
+                      color: isFull ? Colors.red : Colors.grey[600],
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: pct,
+                          minHeight: 5,
+                          backgroundColor: Colors.grey.shade200,
+                          valueColor: AlwaysStoppedAnimation(
+                            isFull
+                                ? Colors.red
+                                : pct > 0.7
+                                ? Colors.orange
+                                : Colors.green,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '$used/$max pts',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isFull ? Colors.red : Colors.grey[600],
-                      fontWeight: isFull ? FontWeight.w700 : FontWeight.normal,
+                    const SizedBox(width: 8),
+                    Text(
+                      '$used/$max pts',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isFull ? Colors.red : Colors.grey[600],
+                        fontWeight: isFull
+                            ? FontWeight.w700
+                            : FontWeight.normal,
+                      ),
                     ),
-                  ),
-                ],
-              );
-            }),
+                  ],
+                );
+              },
+            ),
           ),
 
           // Banner negocio sin membresía
@@ -422,7 +536,11 @@ class _CartSheetState extends State<CartSheet> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.flash_on, color: Colors.orange.shade700, size: 18),
+                    Icon(
+                      Icons.flash_on,
+                      color: Colors.orange.shade700,
+                      size: 18,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -522,7 +640,11 @@ class _CartSheetState extends State<CartSheet> {
                       (e) => _CartItemRow(
                         entry: e,
                         onAdd: () {
-                          final added = _cart.addItem(e.item, e.shopId, e.shopName);
+                          final added = _cart.addItem(
+                            e.item,
+                            e.shopId,
+                            e.shopName,
+                          );
                           if (!added) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -554,7 +676,10 @@ class _CartSheetState extends State<CartSheet> {
                   child: _DeliveryChip(
                     label: 'Delivery',
                     icon: Icons.delivery_dining,
-                    selected: !isMulti && !_shopDisabled && _deliveryType == 'delivery',
+                    selected:
+                        !isMulti &&
+                        !_shopDisabled &&
+                        _deliveryType == 'delivery',
                     disabled: isMulti || _shopDisabled,
                     onTap: (isMulti || _shopDisabled)
                         ? null
@@ -566,7 +691,10 @@ class _CartSheetState extends State<CartSheet> {
                   child: _DeliveryChip(
                     label: 'Recojo',
                     icon: Icons.store,
-                    selected: !isMulti && !_shopDisabled && _deliveryType == 'recogida',
+                    selected:
+                        !isMulti &&
+                        !_shopDisabled &&
+                        _deliveryType == 'recogida',
                     disabled: isMulti || _shopDisabled,
                     onTap: (isMulti || _shopDisabled)
                         ? null
@@ -578,7 +706,8 @@ class _CartSheetState extends State<CartSheet> {
                   child: _DeliveryChip(
                     label: 'Express',
                     icon: Icons.electric_bolt,
-                    selected: isMulti || _shopDisabled || _deliveryType == 'express',
+                    selected:
+                        isMulti || _shopDisabled || _deliveryType == 'express',
                     color: Colors.orange.shade700,
                     disabled: isMulti,
                     onTap: isMulti
@@ -602,7 +731,7 @@ class _CartSheetState extends State<CartSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     )
-                  : _addresses.isEmpty
+                  : _filteredAddresses.isEmpty
                   ? GestureDetector(
                       onTap: () async {
                         final added = await Navigator.push<bool>(
@@ -633,7 +762,9 @@ class _CartSheetState extends State<CartSheet> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Necesitas agregar una dirección de entrega',
+                                _addresses.isEmpty
+                                    ? 'Necesitas agregar una dirección de entrega'
+                                    : 'No hay direcciones en esta zona',
                                 style: TextStyle(
                                   color: Colors.red.shade700,
                                   fontSize: 13,
@@ -655,7 +786,7 @@ class _CartSheetState extends State<CartSheet> {
                         final picked = await showModalBottomSheet<UserAddress>(
                           context: context,
                           builder: (_) => _AddressPicker(
-                            addresses: _addresses,
+                            addresses: _filteredAddresses,
                             selected: _selectedAddress,
                           ),
                         );
@@ -722,7 +853,10 @@ class _CartSheetState extends State<CartSheet> {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: _appliedCouponCode != null
                   ? Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.green.shade50,
                         borderRadius: BorderRadius.circular(10),
@@ -730,7 +864,11 @@ class _CartSheetState extends State<CartSheet> {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.local_offer, size: 16, color: Colors.green.shade700),
+                          Icon(
+                            Icons.local_offer,
+                            size: 16,
+                            color: Colors.green.shade700,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
@@ -744,7 +882,11 @@ class _CartSheetState extends State<CartSheet> {
                           ),
                           GestureDetector(
                             onTap: _removeCoupon,
-                            child: Icon(Icons.close, size: 18, color: Colors.green.shade700),
+                            child: Icon(
+                              Icons.close,
+                              size: 18,
+                              color: Colors.green.shade700,
+                            ),
                           ),
                         ],
                       ),
@@ -757,24 +899,39 @@ class _CartSheetState extends State<CartSheet> {
                             Expanded(
                               child: TextField(
                                 controller: _couponController,
-                                textCapitalization: TextCapitalization.characters,
+                                textCapitalization:
+                                    TextCapitalization.characters,
                                 style: const TextStyle(fontSize: 13),
                                 decoration: InputDecoration(
                                   hintText: 'Código de cupón',
                                   hintStyle: const TextStyle(fontSize: 13),
-                                  prefixIcon: const Icon(Icons.local_offer_outlined, size: 18),
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  prefixIcon: const Icon(
+                                    Icons.local_offer_outlined,
+                                    size: 18,
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(color: Colors.grey.shade300),
+                                    borderSide: BorderSide(
+                                      color: Colors.grey.shade300,
+                                    ),
                                   ),
                                   enabledBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(color: Colors.grey.shade300),
+                                    borderSide: BorderSide(
+                                      color: Colors.grey.shade300,
+                                    ),
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(color: Theme.of(context).colorScheme.primary),
+                                    borderSide: BorderSide(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                    ),
                                   ),
                                 ),
                                 onSubmitted: (_) => _applyCoupon(),
@@ -784,17 +941,35 @@ class _CartSheetState extends State<CartSheet> {
                             SizedBox(
                               height: 44,
                               child: ElevatedButton(
-                                onPressed: _validatingCoupon ? null : _applyCoupon,
+                                onPressed: _validatingCoupon
+                                    ? null
+                                    : _applyCoupon,
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Theme.of(context).colorScheme.primary,
+                                  backgroundColor: Theme.of(
+                                    context,
+                                  ).colorScheme.primary,
                                   foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
                                   elevation: 0,
                                 ),
                                 child: _validatingCoupon
-                                    ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                                    : const Text('Aplicar', style: TextStyle(fontSize: 13)),
+                                    ? const SizedBox(
+                                        height: 18,
+                                        width: 18,
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Text(
+                                        'Aplicar',
+                                        style: TextStyle(fontSize: 13),
+                                      ),
                               ),
                             ),
                           ],
@@ -803,7 +978,10 @@ class _CartSheetState extends State<CartSheet> {
                           const SizedBox(height: 4),
                           Text(
                             _couponError!,
-                            style: TextStyle(fontSize: 11, color: Colors.red.shade600),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.red.shade600,
+                            ),
                           ),
                         ],
                       ],
@@ -883,11 +1061,18 @@ class _CartSheetState extends State<CartSheet> {
                     children: [
                       Text(
                         'Cupón $_appliedCouponCode',
-                        style: TextStyle(color: Colors.green.shade700, fontSize: 13),
+                        style: TextStyle(
+                          color: Colors.green.shade700,
+                          fontSize: 13,
+                        ),
                       ),
                       Text(
                         '−Bs ${_couponDiscount.toStringAsFixed(2)}',
-                        style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.w600, fontSize: 13),
+                        style: TextStyle(
+                          color: Colors.green.shade700,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
                       ),
                     ],
                   ),
@@ -924,14 +1109,7 @@ class _CartSheetState extends State<CartSheet> {
                           label: 'QR / Transferencia',
                           icon: Icons.qr_code,
                           selected: _paymentMethod == 'qr',
-                          onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Pago con QR — Próximamente'),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          },
+                          onTap: () => setState(() => _paymentMethod = 'qr'),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -947,10 +1125,42 @@ class _CartSheetState extends State<CartSheet> {
                   ),
                 ],
                 const SizedBox(height: 16),
+                // Validación de pago en efectivo
+                if (_paymentMethod == 'cash' && !_canPayCash)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline,
+                              size: 18, color: Colors.red.shade700),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Necesitas acumular Bs ${(_minCashOrderAmount - _totalCashOrders).toStringAsFixed(2)} más en compras para desbloquear efectivo',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.red.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: (_isOrdering || _cart.isEmpty)
+                    onPressed: (_isOrdering ||
+                            _cart.isEmpty ||
+                            (_paymentMethod == 'cash' && !_canPayCash))
                         ? null
                         : _checkout,
                     style: ElevatedButton.styleFrom(
@@ -1188,7 +1398,11 @@ class _PaymentChip extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 16, color: selected ? primary : Colors.grey.shade500),
+            Icon(
+              icon,
+              size: 16,
+              color: selected ? primary : Colors.grey.shade500,
+            ),
             const SizedBox(width: 6),
             Text(
               label,

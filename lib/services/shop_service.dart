@@ -18,7 +18,7 @@ class ShopCategory {
         id: j['id'] as String,
         name: j['name'] as String,
         icon: j['icon'] as String?,
-        businessType: j['business_type'] as String? ?? j['businessType'] as String? ?? 'restaurant',
+        businessType: j['business_type_id'] as String? ?? j['businessTypeId'] as String? ?? j['business_type'] as String? ?? j['businessType'] as String? ?? 'restaurant',
       );
 }
 
@@ -59,7 +59,7 @@ class Shop {
   final String id;
   final String name;
   final String? description;
-  final String? imageUrl;
+  final List<String> imageUrls;
   final String? address;
   final double? rating;
   final int? deliveryMinutes;
@@ -75,7 +75,7 @@ class Shop {
     required this.id,
     required this.name,
     this.description,
-    this.imageUrl,
+    List<String>? imageUrls,
     this.address,
     this.rating,
     this.deliveryMinutes,
@@ -84,13 +84,13 @@ class Shop {
     this.businessType = 'restaurant',
     this.menu = const [],
     this.status = 'active',
-  });
+  }) : imageUrls = imageUrls ?? [];
 
   Shop copyWith({String? status}) => Shop(
         id: id,
         name: name,
         description: description,
-        imageUrl: imageUrl,
+        imageUrls: imageUrls,
         address: address,
         rating: rating,
         deliveryMinutes: deliveryMinutes,
@@ -103,11 +103,29 @@ class Shop {
 
   factory Shop.fromJson(Map<String, dynamic> j) {
     debugPrint('[Shop.fromJson] id=${j['id']} name=${j['name']} status=${j['status']}');
+
+    // Parse imageUrls from API — puede ser array o string legacy
+    List<String> imageUrls = [];
+    final imageUrlsData = j['imageUrls'] ?? j['image_urls'];
+    if (imageUrlsData is List) {
+      imageUrls = imageUrlsData.whereType<String>().toList();
+    } else if (imageUrlsData is String && imageUrlsData.isNotEmpty) {
+      imageUrls = [imageUrlsData];
+    }
+
+    // Fallback a campo legacy imageUrl
+    if (imageUrls.isEmpty) {
+      final legacyUrl = j['image_url'] as String? ?? j['imageUrl'] as String?;
+      if (legacyUrl != null && legacyUrl.isNotEmpty) {
+        imageUrls = [legacyUrl];
+      }
+    }
+
     return Shop(
         id: j['id'] as String,
         name: j['name'] as String,
         description: j['description'] as String?,
-        imageUrl: j['image_url'] as String? ?? j['imageUrl'] as String?,
+        imageUrls: imageUrls,
         address: j['address'] as String?,
         rating: j['rating'] == null ? null : double.tryParse(j['rating'].toString()),
         deliveryMinutes: j['deliveryTimeMin'] as int? ?? j['delivery_time_min'] as int? ?? j['deliveryMinutes'] as int? ?? j['delivery_minutes'] as int?,
@@ -115,7 +133,7 @@ class Shop {
             ? null
             : double.tryParse((j['deliveryFee'] ?? j['delivery_fee']).toString()),
         isOpen: j['is_open'] as bool? ?? j['isOpen'] as bool? ?? true,
-        businessType: j['business_type'] as String? ?? j['businessType'] as String? ?? 'restaurant',
+        businessType: j['businessTypeId'] as String? ?? j['business_type_id'] as String? ?? j['business_type'] as String? ?? j['businessType'] as String? ?? 'restaurant',
         menu: _flattenMenu(j),
         status: j['status'] as String? ?? 'active',
       );
@@ -183,11 +201,13 @@ class ShopService {
     String? search,
     String? categoryId,
     String? businessType,
+    String? zoneId,
   }) async {
     final query = <String, String>{};
     if (search != null && search.isNotEmpty) query['search'] = search;
     if (categoryId != null) query['categoryId'] = categoryId;
     if (businessType != null) query['businessType'] = businessType;
+    if (zoneId != null && zoneId.isNotEmpty) query['zoneId'] = zoneId;
     final data = await _api.get('/shops', query: query.isEmpty ? null : query) as List;
     return data.map((e) => Shop.fromJson(e as Map<String, dynamic>)).toList();
   }

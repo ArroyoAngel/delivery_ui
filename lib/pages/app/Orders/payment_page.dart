@@ -1,6 +1,10 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import '../../../services/order_service.dart';
 import '../../../services/cart_service.dart';
 
@@ -13,6 +17,7 @@ class PaymentPage extends StatefulWidget {
   final double amount;
   final String shopName;
   final String? paymentReference;
+  final String? platformQrImageUrl;
 
   const PaymentPage({
     super.key,
@@ -21,6 +26,7 @@ class PaymentPage extends StatefulWidget {
     required this.amount,
     required this.shopName,
     this.paymentReference,
+    this.platformQrImageUrl,
   }) : assert(orderId != null || groupId != null);
 
   @override
@@ -32,12 +38,69 @@ class _PaymentPageState extends State<PaymentPage> {
   bool _verifying = false;
   bool _saving = false;
 
+  // Proof upload state
+  XFile? _proofFile;
+  bool _proofUploading = false;
+  bool _proofSent = false;
+
+  Future<void> _pickProof() async {
+    final file = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (file != null && mounted) {
+      setState(() => _proofFile = file);
+    }
+  }
+
+  Future<void> _submitProof() async {
+    if (_proofFile == null) return;
+    final orderId = widget.orderId ?? widget.groupId;
+    if (orderId == null) return;
+
+    setState(() => _proofUploading = true);
+    try {
+      await _orderService.uploadPaymentProof(orderId, _proofFile!.path);
+      if (!mounted) return;
+      setState(() {
+        _proofSent = true;
+        _proofFile = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Comprobante enviado — esperando confirmación del administrador'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al enviar comprobante: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _proofUploading = false);
+    }
+  }
+
   Future<void> _saveQr() async {
     setState(() => _saving = true);
     try {
-      final bytes = await rootBundle.load('assets/qr_bnb.jpg');
+      final Uint8List bytes;
+
+      // Si hay URL de QR configurada, descargar desde ahí; si no, usar asset
+      if (widget.platformQrImageUrl != null && widget.platformQrImageUrl!.isNotEmpty) {
+        final response = await http.get(Uri.parse(widget.platformQrImageUrl!));
+        if (response.statusCode != 200) {
+          throw Exception('Error al descargar QR: ${response.statusCode}');
+        }
+        bytes = response.bodyBytes;
+      } else {
+        final data = await rootBundle.load('assets/qr_bnb.jpg');
+        bytes = data.buffer.asUint8List();
+      }
+
       await Gal.putImageBytes(
-        bytes.buffer.asUint8List(),
+        bytes,
         name: 'pago_bnb_${(widget.groupId ?? widget.orderId!).substring(0, 8)}',
       );
       if (!mounted) return;
@@ -54,6 +117,53 @@ class _PaymentPageState extends State<PaymentPage> {
     }
   }
 
+  Widget _buildQrImage() {
+    // Si hay URL de QR configurada, mostrar desde ahí; si no, usar asset
+    if (widget.platformQrImageUrl != null && widget.platformQrImageUrl!.isNotEmpty) {
+      return Image.network(
+        widget.platformQrImageUrl!,
+        width: 220,
+        height: 220,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _buildQrPlaceholder(),
+      );
+    } else {
+      return Image.asset(
+        'assets/qr_bnb.jpg',
+        width: 220,
+        height: 220,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _buildQrPlaceholder(),
+      );
+    }
+  }
+
+  Widget _buildQrPlaceholder() {
+    return Container(
+      width: 220,
+      height: 220,
+      color: Colors.grey.shade100,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.qr_code,
+            size: 80,
+            color: Colors.grey.shade400,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'QR no disponible',
+            style: TextStyle(
+              color: Colors.grey.shade500,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _verifyPayment() async {
     setState(() => _verifying = true);
     try {
@@ -64,6 +174,7 @@ class _PaymentPageState extends State<PaymentPage> {
       if (status == 'pagado' ||
           status == 'confirmado' ||
           status == 'preparando' ||
+          status == 'listo' ||
           status == 'en_camino' ||
           status == 'entregado') {
         CartService().clear();
@@ -198,35 +309,7 @@ class _PaymentPageState extends State<PaymentPage> {
                 padding: const EdgeInsets.all(12),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.asset(
-                    'assets/qr_bnb.jpg',
-                    width: 220,
-                    height: 220,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      width: 220,
-                      height: 220,
-                      color: Colors.grey.shade100,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.qr_code,
-                            size: 80,
-                            color: Colors.grey.shade400,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'QR no disponible',
-                            style: TextStyle(
-                              color: Colors.grey.shade500,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  child: _buildQrImage(),
                 ),
               ),
               const SizedBox(height: 12),
@@ -281,6 +364,95 @@ class _PaymentPageState extends State<PaymentPage> {
                   color: scheme.onSurfaceVariant,
                 ),
               ),
+              const SizedBox(height: 32),
+
+              // ── Sección: Comprobante de pago ──────────────────────────────
+              if (_proofSent)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green.shade200),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green.shade700, size: 32),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Comprobante enviado',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.green.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Tu comprobante está siendo revisado por el administrador.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.green.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else if (_proofFile != null)
+                Column(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(
+                        File(_proofFile!.path),
+                        width: double.infinity,
+                        height: 200,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: _proofUploading ? null : _pickProof,
+                            child: const Text('Cambiar'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: _proofUploading ? null : _submitProof,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: scheme.primary,
+                              foregroundColor: Colors.white,
+                            ),
+                            child: _proofUploading
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text('Enviar comprobante'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                )
+              else
+                OutlinedButton.icon(
+                  onPressed: _pickProof,
+                  icon: const Icon(Icons.upload_file_outlined),
+                  label: const Text('Cargar comprobante de pago'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 48),
+                  ),
+                ),
             ],
           ),
         ),

@@ -254,7 +254,15 @@ class _AddressCard extends StatelessWidget {
 
 class AddressFormPage extends StatefulWidget {
   final UserAddress? address;
-  const AddressFormPage({super.key, this.address});
+  final double? initialLatitude;
+  final double? initialLongitude;
+
+  const AddressFormPage({
+    super.key,
+    this.address,
+    this.initialLatitude,
+    this.initialLongitude,
+  });
 
   @override
   State<AddressFormPage> createState() => _AddressFormPageState();
@@ -288,8 +296,8 @@ class _AddressFormPageState extends State<AddressFormPage> {
     _floorCtrl = TextEditingController(text: a?.floor ?? '');
     _referenceCtrl = TextEditingController(text: a?.reference ?? '');
     _isDefault = a?.isDefault ?? false;
-    _latitude = a?.latitude;
-    _longitude = a?.longitude;
+    _latitude = widget.initialLatitude ?? a?.latitude;
+    _longitude = widget.initialLongitude ?? a?.longitude;
   }
 
   @override

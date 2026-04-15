@@ -5,6 +5,9 @@ import '../../../services/shop_service.dart';
 import '../../../services/notification_api_service.dart';
 import '../../../services/rating_service.dart';
 import '../../../services/socket_service.dart';
+import '../../../services/session_context.dart';
+import '../../../services/zones_service.dart';
+import '../../core/address_selection_page.dart';
 import '../notifications_sheet.dart';
 import '../ratings/rating_sheet.dart';
 import 'shop_page.dart';
@@ -79,12 +82,15 @@ class _HomePageState extends State<HomePage> {
   final _notifService = NotificationApiService();
   final _ratingService = RatingService();
   final _searchController = TextEditingController();
+  final _sessionContext = SessionContext();
+  final _zonesService = ZonesService();
 
   late Future<List<Shop>> _shopsFuture;
   late Future<List<ShopCategory>> _categoriesFuture;
   late Future<List<BusinessTypeInfo>> _businessTypesFuture;
   String? _selectedCategory;
   String? _selectedBusinessType; // null = todos
+  String? _userZoneId; // Zona de la dirección seleccionada
   int _unreadCount = 0;
 
   // Overrides de status recibidos por WebSocket
@@ -95,9 +101,11 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _businessTypesFuture = _shopService.getBusinessTypes();
     _loadCategories();
+    _detectUserZone();
     _load();
     _loadUnreadCount();
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkPendingRatings());
+    _sessionContext.addListener(_onSessionChanged);
     SocketService().on('shop:status_changed', (data) {
       if (!mounted) return;
       final shopId = data['shopId'] as String?;
@@ -112,7 +120,33 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     SocketService().off('shop:status_changed');
     _searchController.dispose();
+    _sessionContext.removeListener(_onSessionChanged);
     super.dispose();
+  }
+
+  void _onSessionChanged() {
+    // Si cambió la dirección de sesión, detectar nueva zona y recargar
+    if (mounted) {
+      _detectUserZone();
+    }
+  }
+
+  Future<void> _detectUserZone() async {
+    final address = _sessionContext.selectedAddress;
+    if (address?.latitude != null && address?.longitude != null) {
+      try {
+        final zone = await _zonesService.detectZone(
+          address!.latitude!.toDouble(),
+          address.longitude!.toDouble(),
+        );
+        if (mounted) {
+          setState(() => _userZoneId = zone?.id);
+          _load(); // Recargar shops con la nueva zona
+        }
+      } catch (e) {
+        debugPrint('[HomePage] Error detecting zone: $e');
+      }
+    }
   }
 
   Future<void> _loadUnreadCount() async {
@@ -146,6 +180,18 @@ class _HomePageState extends State<HomePage> {
     ).then((_) => _loadUnreadCount());
   }
 
+  void _openAddressSelection() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => const AddressSelectionPage(),
+    );
+  }
+
   void _loadCategories() {
     setState(() {
       _categoriesFuture = _shopService.getCategories(
@@ -162,6 +208,7 @@ class _HomePageState extends State<HomePage> {
             : _searchController.text.trim(),
         categoryId: _selectedCategory,
         businessType: _selectedBusinessType,
+        zoneId: _userZoneId,
       );
     });
   }
@@ -207,24 +254,28 @@ class _HomePageState extends State<HomePage> {
                                 ),
                               ),
                               const SizedBox(height: 3),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: const [
-                                  Icon(
-                                    Icons.location_on,
-                                    color: AppColors.orange,
-                                    size: 13,
-                                  ),
-                                  SizedBox(width: 3),
-                                  Text(
-                                    'Santa Cruz, Bolivia',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF374151),
+                              GestureDetector(
+                                onTap: _openAddressSelection,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.location_on,
+                                      color: AppColors.orange,
+                                      size: 13,
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      _sessionContext.selectedAddress?.name ??
+                                          'Santa Cruz, Bolivia',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF374151),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
@@ -696,9 +747,9 @@ class _StoreCard extends StatelessWidget {
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(16),
                   ),
-                  child: shop.imageUrl != null
+                  child: shop.imageUrls.isNotEmpty
                       ? CachedNetworkImage(
-                          imageUrl: shop.imageUrl!,
+                          imageUrl: shop.imageUrls.first,
                           height: 160,
                           width: double.infinity,
                           fit: BoxFit.cover,
