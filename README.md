@@ -40,6 +40,7 @@ OWUI_MODEL=yayaeats
 ```bash
 # Lanzar emulador
 flutter emulators --launch Pixel_6_API_36
+flutter emulators --launch Pixel_Fold_API_35
 
 # Esperar que aparezca el dispositivo
 flutter devices --device-timeout 120

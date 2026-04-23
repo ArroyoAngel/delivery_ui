@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "750882656445-3pdcsargjddhjjfeflnfnnrsajf01ect.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.arroyo.yayaeats",
+            "certificate_hash": "795b20142b4a348204c42225bb2eb05b846a64e0"
+          }
+        },
+        {
           "client_id": "750882656445-8974k73a3uf046k560g4snjrkfurp8ce.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

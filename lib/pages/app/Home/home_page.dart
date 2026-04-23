@@ -407,7 +407,8 @@ class _HomePageState extends State<HomePage> {
                                 onTap: () => _selectBusinessType(null),
                               ),
                               ...types.map((t) {
-                                final selected = _selectedBusinessType == t.value;
+                                final selected =
+                                    _selectedBusinessType == t.value;
                                 return Padding(
                                   padding: const EdgeInsets.only(left: 8),
                                   child: _CategoryIconTile(
@@ -460,7 +461,12 @@ class _HomePageState extends State<HomePage> {
                               label: '${cat.icon ?? ''} ${cat.name}'.trim(),
                               selected: selected,
                               onTap: () {
-                                _selectedCategory = selected ? null : cat.id;
+                                if (selected) {
+                                  _selectedCategory = null;
+                                } else {
+                                  _selectedCategory = cat.id;
+                                  _selectedBusinessType = cat.businessType;
+                                }
                                 _load();
                               },
                             ),

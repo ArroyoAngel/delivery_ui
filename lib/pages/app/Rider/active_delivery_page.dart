@@ -442,6 +442,53 @@ class _PickupCard extends StatelessWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 10),
+              // Indicador de pago — MUY NOTORIO
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: (stop.paidAt != null) ? Colors.green.shade50 : Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: (stop.paidAt != null) ? Colors.green.shade400 : Colors.red.shade400,
+                    width: 2,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      (stop.paidAt != null) ? Icons.check_circle : Icons.money,
+                      color: (stop.paidAt != null) ? Colors.green.shade700 : Colors.red.shade700,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            (stop.paidAt != null) ? '✓ PAGADO' : '💵 PAGO EN EFECTIVO',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 14,
+                              color: (stop.paidAt != null) ? Colors.green.shade700 : Colors.red.shade700,
+                            ),
+                          ),
+                          Text(
+                            (stop.paidAt != null)
+                                ? 'Cliente ya pagó'
+                                : 'Cobrar Bs ${stop.total.toStringAsFixed(2)} al entregar',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: (stop.paidAt != null) ? Colors.green.shade600 : Colors.red.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               if (stop.hasSpecialInstructions) ...[
                 const SizedBox(height: 10),
                 Container(

@@ -13,10 +13,11 @@ import 'services/socket_service.dart';
 import 'theme/app_colors.dart';
 import 'pages/app/app_root.dart';
 import 'pages/core/onboarding_page.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
   // En release siempre se usa .env (producción). .env.local solo en debug/profile.
+  WidgetsFlutterBinding.ensureInitialized();
   if (kDebugMode || kProfileMode) {
     try {
       await dotenv.load(fileName: '.env.local');
@@ -26,19 +27,28 @@ Future<void> main() async {
   } else {
     await dotenv.load(fileName: '.env');
   }
+
+  await Firebase.initializeApp();
+
+  if (kDebugMode) {
+    await FirebaseAppCheck.instance.activate(
+      androidProvider: AndroidProvider.debug,
+    );
+    final token = await FirebaseAppCheck.instance.getToken();
+    print("App Check Token activo: $token");
+  }
+
   MapboxOptions.setAccessToken(mapboxAccessToken);
-  // Firebase se inicializa en background — nunca bloquea el arranque
-  Firebase.initializeApp().then((_) {
-    NotificationService().init().catchError((_) {});
-  }).catchError((e) {
-    debugPrint('Firebase init error: $e');
-  });
+  NotificationService().init().catchError((_) {});
 
   // Cargar límite de bolsa desde config del servidor
-  ApiClient().get('/config/max_bag_size').then((value) {
-    final size = int.tryParse(value?.toString() ?? '');
-    if (size != null && size > 0) CartService().setMaxBagSize(size);
-  }).catchError((_) {});
+  ApiClient()
+      .get('/config/max_bag_size')
+      .then((value) {
+        final size = int.tryParse(value?.toString() ?? '');
+        if (size != null && size > 0) CartService().setMaxBagSize(size);
+      })
+      .catchError((_) {});
 
   runApp(const DeliveryApp());
 }
