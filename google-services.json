@@ -38,6 +38,22 @@
           }
         },
         {
+          "client_id": "750882656445-playstore-sha256.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.arroyo.yayaeats",
+            "certificate_hash": "288d2bdee45bb7f49027a39100b317e2e34626fe6e1b3a77dba4a5cad0d25fdf"
+          }
+        },
+        {
+          "client_id": "750882656445-upload-sha256.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.arroyo.yayaeats",
+            "certificate_hash": "90befa559b93a00ea0c23b287e33caaf02deb83445a0274994ceb190e19aea05"
+          }
+        },
+        {
           "client_id": "750882656445-3f7uld2i0e9fo5b1e8s3q7mg1ep0u0fp.apps.googleusercontent.com",
           "client_type": 3
         }
